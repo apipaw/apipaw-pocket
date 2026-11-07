@@ -75,11 +75,15 @@ export const radius = {
 } as const;
 
 export const fontSize = {
-  xs: 11,
-  sm: 12,
+  xs: 12,
+  sm: 13,
   md: 14,
   lg: 16,
+  /** 卡片标题级 */
+  title: 18,
   xl: 20,
+  /** KPI 主数值级（StatTile 的绝对视觉中心）*/
+  metric: 30,
   xxl: 28,
   hero: 44,
 } as const;

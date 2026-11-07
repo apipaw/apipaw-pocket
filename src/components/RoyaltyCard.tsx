@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
   },
-  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
+  cardTitle: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800' },
   refreshBtn: {
     backgroundColor: colors.warnSoft,
     borderRadius: radius.pill,
@@ -462,10 +462,10 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
     padding: spacing.md,
   },
-  metricLabel: { color: colors.textMuted, fontSize: 10, marginBottom: 4 },
-  metricValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
+  metricLabel: { color: colors.textSecondary, fontSize: fontSize.xs, marginBottom: 4 },
+  metricValue: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
   metricValueAccent: { color: colors.chartCreator },
-  metricSub: { color: colors.textMuted, fontSize: 10, marginTop: 2 },
+  metricSub: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 2 },
 
   balanceBox: {
     flexDirection: 'row',
@@ -486,7 +486,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginVertical: 2,
   },
-  balanceSub: { color: colors.textMuted, fontSize: 10 },
+  balanceSub: { color: colors.textMuted, fontSize: 12 },
   withdrawBtn: {
     backgroundColor: colors.warn,
     borderRadius: radius.md,
@@ -524,7 +524,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   modelBarFill: { height: 7, borderRadius: radius.pill, backgroundColor: colors.chartCreator },
-  modelMeta: { color: colors.textMuted, fontSize: 10 },
+  modelMeta: { color: colors.textMuted, fontSize: 12 },
 
   emptyText: { color: colors.textMuted, fontSize: fontSize.xs },
 
@@ -537,13 +537,13 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.divider,
   },
   withdrawAmount: { color: colors.textBody, fontSize: fontSize.xs },
-  withdrawStatus: { fontSize: 10, fontWeight: '700' },
+  withdrawStatus: { fontSize: 12, fontWeight: '700' },
   withdrawDone: { color: colors.accent },
   withdrawPending: { color: colors.warn },
 
   walletFootnote: {
     color: colors.textMuted,
-    fontSize: 10,
+    fontSize: 12,
     fontFamily: 'monospace',
     marginTop: spacing.sm,
   },

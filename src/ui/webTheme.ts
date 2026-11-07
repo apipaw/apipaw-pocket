@@ -228,7 +228,7 @@ body {
 [id^="apx-eyebrow"] {
   letter-spacing: 0.14em !important;
   text-transform: uppercase;
-  font-size: 10px !important;
+  font-size: 12px !important;
   font-weight: 700 !important;
 }
 /* 滚动进入时的轻微上浮 */

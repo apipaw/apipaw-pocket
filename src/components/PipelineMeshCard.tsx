@@ -389,7 +389,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
   },
-  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
+  cardTitle: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800' },
   refreshBtn: {
     backgroundColor: colors.accentSoft,
     borderRadius: radius.pill,
@@ -471,8 +471,8 @@ const styles = StyleSheet.create({
   detailStatus: { fontSize: fontSize.xs, fontWeight: '700' },
   detailGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   detailCell: { width: '31%', minWidth: 92, flexGrow: 1 },
-  detailLabel: { color: colors.textMuted, fontSize: 10, marginBottom: 2 },
-  detailValue: { color: colors.textBody, fontSize: fontSize.xs, fontWeight: '700' },
+  detailLabel: { color: colors.textMuted, fontSize: 12, marginBottom: 2 },
+  detailValue: { color: colors.textBody, fontSize: fontSize.sm, fontWeight: '700' },
 });
 
 export default PipelineMeshCard;

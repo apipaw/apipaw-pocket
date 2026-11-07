@@ -317,7 +317,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
   },
-  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
+  cardTitle: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800' },
   cardSub: { color: colors.textMuted, fontSize: fontSize.xs },
 
   stepBlock: {
@@ -397,9 +397,9 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
     padding: spacing.sm,
   },
-  metaLabel: { color: colors.textMuted, fontSize: 10, marginBottom: 3 },
-  metaValue: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '700' },
-  metaValueSmall: { color: colors.textPrimary, fontSize: 10, fontWeight: '600' },
+  metaLabel: { color: colors.textMuted, fontSize: 12, marginBottom: 3 },
+  metaValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
+  metaValueSmall: { color: colors.textPrimary, fontSize: 12, fontWeight: '600' },
   metaValueAccent: { color: colors.purple },
 
   codeBox: {
@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
   },
   codeText: {
     color: colors.chartCompletion,
-    fontSize: 11,
+    fontSize: 13,
     lineHeight: 17,
     fontFamily: 'monospace',
   },
@@ -434,7 +434,7 @@ const styles = StyleSheet.create({
   walletLabel: { color: colors.textMuted, fontSize: fontSize.xs },
   walletValue: {
     color: colors.textBody,
-    fontSize: 10,
+    fontSize: 12,
     fontFamily: 'monospace',
     flexShrink: 1,
     marginLeft: spacing.md,

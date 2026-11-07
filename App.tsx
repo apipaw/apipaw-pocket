@@ -125,7 +125,8 @@ export default function App() {
     setKeyModalVisible(true);
   };
 
-  const maskedKey = apiKey ? `${apiKey.substring(0, 8)}••••${apiKey.slice(-4)}` : '未配置';
+  // 只保留 6 位前缀 —— 放大到 18px 后 8 位前缀会挤爆指标格
+  const maskedKey = apiKey ? `${apiKey.substring(0, 6)}••••${apiKey.slice(-4)}` : '未配置';
 
   return (
     <SafeAreaView style={styles.root} id="apx-root">
@@ -221,17 +222,17 @@ export default function App() {
                 <View style={styles.balanceMeta}>
                   <View style={styles.balanceMetaCell}>
                     <Text style={styles.balanceMetaLabel}>当前密钥</Text>
-                    <Text style={styles.balanceMetaValue} id="apx-mono-key" numberOfLines={1}>
+                    <Text style={styles.balanceMetaValue} id="apx-mono-key apx-balance-meta-value" numberOfLines={1}>
                       {maskedKey}
                     </Text>
                   </View>
                   <View style={styles.balanceMetaCell}>
                     <Text style={styles.balanceMetaLabel}>今日消费</Text>
-                    <Text style={styles.balanceMetaValue}>${spentTodayUsd.toFixed(4)}</Text>
+                    <Text style={styles.balanceMetaValue} id="apx-balance-meta-value">${spentTodayUsd.toFixed(4)}</Text>
                   </View>
                   <View style={styles.balanceMetaCell}>
                     <Text style={styles.balanceMetaLabel}>单日上限</Text>
-                    <Text style={styles.balanceMetaValue}>${dailyLimitUsd.toFixed(0)}</Text>
+                    <Text style={styles.balanceMetaValue} id="apx-balance-meta-value">${dailyLimitUsd.toFixed(0)}</Text>
                   </View>
                 </View>
               </Surface>
@@ -457,10 +458,10 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   brandMarkText: { color: colors.accent, fontSize: 13 },
-  brandTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800', letterSpacing: 0.2 },
+  brandTitle: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800', letterSpacing: 0.2 },
   brandSub: {
-    color: colors.textMuted,
-    fontSize: 9,
+    color: colors.textSecondary,
+    fontSize: fontSize.xs,
     fontWeight: '700',
     letterSpacing: 1.4,
     marginTop: 1,
@@ -477,7 +478,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  keyBtnText: { color: colors.textBody, fontSize: fontSize.xs, fontWeight: '700' },
+  keyBtnText: { color: colors.textBody, fontSize: fontSize.sm, fontWeight: '700' },
   roleBtn: {
     backgroundColor: colors.purpleSoft,
     borderRadius: radius.pill,
@@ -486,7 +487,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.purple,
   },
-  roleBtnText: { color: colors.purple, fontSize: fontSize.xs, fontWeight: '700' },
+  roleBtnText: { color: colors.purple, fontSize: fontSize.sm, fontWeight: '700' },
 
   scrollContent: {
     padding: spacing.lg,
@@ -504,7 +505,7 @@ const styles = StyleSheet.create({
   balanceCard: { flex: 1.45, gap: spacing.md },
   balanceCardNarrow: { flex: 0 },
   balanceHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  eyebrow: { color: colors.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2 },
+  eyebrow: { color: colors.textSecondary, fontSize: 12, fontWeight: '700', letterSpacing: 1.2 },
   balanceLive: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -516,11 +517,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(52, 211, 153, 0.35)',
   },
-  balanceLiveText: { color: colors.accent, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  balanceLiveText: { color: colors.accent, fontSize: fontSize.xs, fontWeight: '800', letterSpacing: 1 },
   balanceAmountRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
   balanceValue: { fontSize: fontSize.hero, fontWeight: '800', letterSpacing: -1.5 },
-  balanceUnit: { color: colors.textSecondary, fontSize: fontSize.lg, fontWeight: '700' },
-  balanceCaption: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: -spacing.sm },
+  balanceUnit: { color: colors.textSecondary, fontSize: fontSize.title, fontWeight: '700' },
+  balanceCaption: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: -spacing.sm },
   balanceMeta: {
     flexDirection: 'row',
     gap: spacing.md,
@@ -529,19 +530,20 @@ const styles = StyleSheet.create({
     borderTopColor: colors.divider,
   },
   balanceMetaCell: { flex: 1, gap: 4 },
-  balanceMetaLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '700' },
-  balanceMetaValue: { color: colors.textBody, fontSize: fontSize.xs, fontWeight: '700' },
+  balanceMetaLabel: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
+  // 渐变卡底部的三个核心指标 —— 放大加粗，在霓虹描边下清晰可读
+  balanceMetaValue: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800' },
 
   nodePanelCard: { flex: 1.2, gap: spacing.md },
   nodePanelStats: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   nodePanelStat: { gap: 4 },
   nodePanelValue: { color: colors.accent, fontSize: fontSize.xxl, fontWeight: '800' },
-  nodePanelLabel: { color: colors.textMuted, fontSize: fontSize.xs },
+  nodePanelLabel: { color: colors.textSecondary, fontSize: fontSize.sm },
   nodePanelDivider: { width: 1, height: 38, backgroundColor: colors.divider },
 
   nodeHintCard: { flex: 1, gap: spacing.sm, justifyContent: 'center' },
   nodeHintTitle: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
-  nodeHintText: { color: colors.textMuted, fontSize: fontSize.xs, lineHeight: 18 },
+  nodeHintText: { color: colors.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
 
   nodeCard: {
     backgroundColor: colors.card,
@@ -553,8 +555,8 @@ const styles = StyleSheet.create({
   },
   nodeHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   nodeHeadLeft: { flex: 1, gap: 4 },
-  nodeIdText: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
-  nodeMetaText: { color: colors.textMuted, fontSize: fontSize.xs },
+  nodeIdText: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800' },
+  nodeMetaText: { color: colors.textSecondary, fontSize: fontSize.sm },
   nodeStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   nodeStatusText: { fontSize: fontSize.xs, fontWeight: '700' },
 
@@ -574,7 +576,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   segmentActive: { backgroundColor: colors.purpleSoft, borderWidth: 1, borderColor: colors.purple },
-  segmentText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '700' },
+  segmentText: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
   segmentTextActive: { color: colors.purple },
 
   modalBackdrop: {
@@ -594,7 +596,7 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   modalTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800', marginBottom: 8 },
-  modalHint: { color: colors.textMuted, fontSize: fontSize.xs, lineHeight: 18, marginBottom: 14 },
+  modalHint: { color: colors.textSecondary, fontSize: fontSize.sm, lineHeight: 20, marginBottom: 14 },
   modalInput: {
     backgroundColor: colors.bgElevated,
     borderWidth: 1,

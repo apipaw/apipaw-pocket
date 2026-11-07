@@ -156,6 +156,61 @@ async function main() {
     String(glass),
   );
 
+  // ---- 4b. 排版层级（字号下限）----
+  console.log('\n[4b] 排版层级');
+  const fontPx = async (sel) =>
+    page.evaluate((s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const px = parseFloat(getComputedStyle(el).fontSize);
+      return Number.isFinite(px) ? px : null;
+    }, sel);
+
+  const typeScale = [
+    ['#apx-balance-meta-value', 16, '余额卡底部指标数值 ≥ 16px'],
+    ['#apx-stat-value', 24, 'StatTile KPI 主数值 ≥ 24px'],
+    ['#apx-stat-label', 13, 'StatTile 主标题 ≥ 13px'],
+    ['#apx-stat-hint', 12, 'StatTile 辅助描述 ≥ 12px'],
+    ['#apx-playground-input', 14, 'Playground 输入框 ≥ 14px'],
+    ['#apx-model-selector-value', 14, '模型选择器数值 ≥ 14px'],
+    ['#apx-term-hint', 14, '对话区正文 ≥ 14px'],
+  ];
+  for (const [sel, min, name] of typeScale) {
+    const px = await fontPx(sel);
+    check(
+      px !== null && px >= min,
+      name,
+      px === null ? '元素缺失' : `${px}px`,
+    );
+  }
+
+  // 模型说明行只在模型目录加载成功后渲染 —— 目录不可用时跳过该断言
+  const metaPx = await fontPx('#apx-model-meta');
+  if (metaPx === null) {
+    console.log('  SKIP  模型说明 ≥ 14px — 模型目录不可用，未渲染该行');
+  } else {
+    check(metaPx >= 14, '模型说明 ≥ 14px', `${metaPx}px`);
+  }
+
+  // 字号放大后最容易出的问题：横向溢出 / 指标数值被截断
+  const layout = await page.evaluate(() => {
+    const doc = document.documentElement;
+    const clipped = Array.from(document.querySelectorAll('#apx-balance-meta-value')).filter(
+      (el) => el.scrollWidth > el.clientWidth + 1,
+    ).length;
+    return {
+      scrollW: doc.scrollWidth,
+      clientW: doc.clientWidth,
+      clipped,
+    };
+  });
+  check(
+    layout.scrollW <= layout.clientW + 1,
+    '字号放大后无横向溢出',
+    `scrollW=${layout.scrollW} clientW=${layout.clientW}`,
+  );
+  check(layout.clipped === 0, '余额卡指标数值未被截断', `clipped=${layout.clipped}`);
+
   // ---- 4. 交互元素改造 ----
   console.log('\n[5] 交互改造');
   const bannerGone = await page.locator('text=尚未设置 API Key').count();

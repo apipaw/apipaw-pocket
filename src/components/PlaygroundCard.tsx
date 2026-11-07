@@ -443,7 +443,7 @@ for await (const chunk of stream) {
       >
         <View style={styles.modelSelectorLeft}>
           <Text style={styles.modelSelectorLabel}>推理模型</Text>
-          <Text style={styles.modelSelectorValue}>
+          <Text style={styles.modelSelectorValue} id="apx-model-selector-value">
             {modelsLoading
               ? '加载中...'
               : activeModel
@@ -470,7 +470,7 @@ for await (const chunk of stream) {
       )}
 
       {activeModel && (
-        <Text style={styles.modelMeta}>
+        <Text style={styles.modelMeta} id="apx-model-meta">
           {activeModel.description} · 输入 ${activeModel.pricing.prompt_per_1k_usd}/1K ·
           输出 ${activeModel.pricing.completion_per_1k_usd}/1K · 上下文 {activeModel.context_window}
         </Text>
@@ -494,7 +494,7 @@ for await (const chunk of stream) {
           {messages.length === 0 && (
             <View style={styles.emptyHint}>
               <Text style={styles.emptyHintTitle}>终端待命</Text>
-              <Text style={styles.emptyHintText}>
+              <Text style={styles.emptyHintText} id="apx-term-hint">
                 选择模型后输入 Prompt，即可体验流式推理与思考链展示。
               </Text>
             </View>
@@ -547,11 +547,12 @@ for await (const chunk of stream) {
       {/* 输入区 */}
       <View style={styles.inputRow}>
         <TextInput
+          id="apx-playground-input"
           style={styles.input}
           value={input}
           onChangeText={setInput}
           placeholder="输入 Prompt，例如：解释一下 DePIN 的结算规则"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={colors.textSecondary}
           multiline
           editable={!streaming}
           onSubmitEditing={handleSend}
@@ -691,7 +692,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: colors.textPrimary,
-    fontSize: fontSize.lg,
+    fontSize: fontSize.title,
     fontWeight: '800',
     letterSpacing: 0.2,
   },
@@ -705,7 +706,7 @@ const styles = StyleSheet.create({
   },
   exportBtnText: {
     color: colors.purple,
-    fontSize: fontSize.xs,
+    fontSize: fontSize.sm,
     fontWeight: '700',
   },
 
@@ -722,13 +723,13 @@ const styles = StyleSheet.create({
   },
   modelSelectorLeft: { flex: 1 },
   modelSelectorLabel: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
     marginBottom: 2,
   },
   modelSelectorValue: {
     color: colors.textPrimary,
-    fontSize: fontSize.lg,
+    fontSize: fontSize.title,
     fontWeight: '700',
   },
   modelSelectorRight: {
@@ -744,13 +745,13 @@ const styles = StyleSheet.create({
   },
   tierBadgeBase: { backgroundColor: 'rgba(59, 130, 246, 0.18)' },
   tierBadgeCreator: { backgroundColor: colors.warnSoft },
-  tierBadgeText: { color: colors.textBody, fontSize: fontSize.xs, fontWeight: '700' },
+  tierBadgeText: { color: colors.textBody, fontSize: fontSize.sm, fontWeight: '700' },
   modelMeta: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
     marginTop: spacing.sm,
   },
-  modelsError: { color: colors.danger, fontSize: fontSize.xs, marginTop: spacing.xs },
+  modelsError: { color: colors.danger, fontSize: fontSize.sm, marginTop: spacing.xs },
 
   conversation: {
     marginTop: spacing.md,
@@ -773,8 +774,8 @@ const styles = StyleSheet.create({
   termDots: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   termDot: { width: 8, height: 8, borderRadius: 4, opacity: 0.85 },
   termLabel: {
-    color: colors.textMuted,
-    fontSize: 10,
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
     fontFamily: 'monospace',
     letterSpacing: 0.4,
   },
@@ -783,13 +784,13 @@ const styles = StyleSheet.create({
   emptyHint: { paddingVertical: spacing.xl, alignItems: 'center', gap: 6 },
   emptyHintTitle: {
     color: colors.cyan,
-    fontSize: fontSize.sm,
+    fontSize: fontSize.lg,
     fontWeight: '800',
     letterSpacing: 1.2,
   },
   emptyHintText: {
-    color: colors.textMuted,
-    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontSize: fontSize.md,
     textAlign: 'center',
     lineHeight: 20,
   },
@@ -802,7 +803,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
     padding: spacing.md,
   },
-  userBubbleText: { color: colors.textPrimary, fontSize: fontSize.md, lineHeight: 21 },
+  userBubbleText: { color: colors.textPrimary, fontSize: fontSize.lg, lineHeight: 24 },
 
   assistantBlock: {
     backgroundColor: colors.cardAlt,
@@ -812,9 +813,9 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
-  answerText: { color: colors.textBody, fontSize: fontSize.md, lineHeight: 22 },
+  answerText: { color: colors.textBody, fontSize: fontSize.lg, lineHeight: 25 },
   cursor: { color: colors.accent },
-  errorText: { color: colors.danger, fontSize: fontSize.sm, lineHeight: 19 },
+  errorText: { color: colors.danger, fontSize: fontSize.md, lineHeight: 21 },
 
   reasonCard: {
     backgroundColor: colors.purpleSoft,
@@ -832,14 +833,14 @@ const styles = StyleSheet.create({
   },
   reasonHeaderLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: spacing.sm },
   reasonIcon: { fontSize: fontSize.md },
-  reasonTitle: { color: colors.purple, fontSize: fontSize.sm, fontWeight: '700', flexShrink: 1 },
+  reasonTitle: { color: colors.purple, fontSize: fontSize.md, fontWeight: '700', flexShrink: 1 },
   reasonTitleLive: { color: colors.warn },
   reasonChevron: { color: colors.textSecondary, fontSize: fontSize.md, marginLeft: spacing.sm },
   reasonBody: { overflow: 'hidden', paddingHorizontal: spacing.md },
   reasonText: {
     color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    lineHeight: 20,
+    fontSize: fontSize.md,
+    lineHeight: 22,
     paddingBottom: spacing.md,
   },
 
@@ -854,8 +855,8 @@ const styles = StyleSheet.create({
   },
   statItem: { flex: 1, alignItems: 'center' },
   statDivider: { width: 1, height: 26, backgroundColor: colors.divider },
-  statLabel: { color: colors.textMuted, fontSize: 10, marginBottom: 3 },
-  statValue: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '700' },
+  statLabel: { color: colors.textSecondary, fontSize: fontSize.xs, marginBottom: 3 },
+  statValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
   statValueAccent: { color: colors.accent },
 
   inputRow: {
@@ -866,8 +867,8 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    minHeight: 44,
-    maxHeight: 110,
+    minHeight: 48,
+    maxHeight: 120,
     backgroundColor: colors.bg,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -875,7 +876,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
-    fontSize: fontSize.md,
+    fontSize: fontSize.lg,
   },
   sendBtn: {
     height: 44,
@@ -921,8 +922,8 @@ const styles = StyleSheet.create({
   },
   pickerItemActive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   pickerItemLeft: { flex: 1 },
-  pickerItemTitle: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
-  pickerItemDesc: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 3 },
+  pickerItemTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '700' },
+  pickerItemDesc: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: 3 },
   pickerItemRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   pickerCheck: { color: colors.accent, fontSize: fontSize.lg, fontWeight: '700' },
   pickerEmpty: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
@@ -965,7 +966,7 @@ const styles = StyleSheet.create({
   codeContent: { padding: spacing.md },
   codeText: {
     color: colors.textBody,
-    fontSize: 11,
+    fontSize: 13,
     lineHeight: 18,
     fontFamily: 'monospace',
   },

@@ -541,7 +541,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
   },
-  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
+  cardTitle: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800' },
   refreshBtn: {
     backgroundColor: colors.accentSoft,
     borderRadius: radius.pill,
@@ -567,10 +567,10 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
     padding: spacing.md,
   },
-  metricLabel: { color: colors.textMuted, fontSize: 10, marginBottom: 4 },
-  metricValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
+  metricLabel: { color: colors.textSecondary, fontSize: fontSize.xs, marginBottom: 4 },
+  metricValue: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
   metricValueAccent: { color: colors.accent },
-  metricSub: { color: colors.textMuted, fontSize: 10, marginTop: 2 },
+  metricSub: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 2 },
 
   section: { marginBottom: spacing.lg },
   sectionTitle: {
@@ -596,7 +596,7 @@ const styles = StyleSheet.create({
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { color: colors.textSecondary, fontSize: fontSize.xs },
+  legendText: { color: colors.textSecondary, fontSize: fontSize.sm },
   legendRequests: { color: colors.textMuted, fontSize: fontSize.xs, marginLeft: 'auto' },
 
   donutRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
@@ -607,7 +607,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   donutValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
-  donutLabel: { color: colors.textMuted, fontSize: 9, marginTop: 2 },
+  donutLabel: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
 
   tierList: { flex: 1, gap: spacing.md },
   tierItem: { gap: 5 },
@@ -620,7 +620,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   tierBarFill: { height: 7, borderRadius: radius.pill },
-  tierMeta: { color: colors.textMuted, fontSize: 10 },
+  tierMeta: { color: colors.textMuted, fontSize: 12 },
 
   settlementBox: {
     marginTop: spacing.md,
@@ -661,10 +661,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: spacing.sm,
   },
-  sliderHint: { color: colors.textMuted, fontSize: 10 },
-  syncSyncing: { color: colors.warn, fontSize: 10, fontWeight: '700' },
-  syncDone: { color: colors.accent, fontSize: 10, fontWeight: '700' },
-  syncError: { color: colors.danger, fontSize: 10, fontWeight: '700' },
+  sliderHint: { color: colors.textMuted, fontSize: 12 },
+  syncSyncing: { color: colors.warn, fontSize: 12, fontWeight: '700' },
+  syncDone: { color: colors.accent, fontSize: 12, fontWeight: '700' },
+  syncError: { color: colors.danger, fontSize: 12, fontWeight: '700' },
 });
 
 export default AnalyticsCard;

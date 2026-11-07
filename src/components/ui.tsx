@@ -70,18 +70,18 @@ export const StatTile: React.FC<StatTileProps> = ({
     <View style={[styles.statTile, style]}>
       <View style={styles.statTileHead}>
         <View style={[styles.statTileDot, { backgroundColor: toneColor }]} />
-        <Text style={styles.statTileLabel} numberOfLines={1}>
+        <Text style={styles.statTileLabel} id="apx-stat-label" numberOfLines={1}>
           {label}
         </Text>
       </View>
       <View style={styles.statTileValueRow}>
-        <Text style={[styles.statTileValue, { color: toneColor }]} numberOfLines={1}>
+        <Text style={[styles.statTileValue, { color: toneColor }]} id="apx-stat-value" numberOfLines={1}>
           {value}
         </Text>
         {unit ? <Text style={styles.statTileUnit}>{unit}</Text> : null}
       </View>
       {hint ? (
-        <Text style={styles.statTileHint} numberOfLines={1}>
+        <Text style={styles.statTileHint} id="apx-stat-hint" numberOfLines={1}>
           {hint}
         </Text>
       ) : null}
@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
 
   statTile: {
     flex: 1,
-    minHeight: 78,
+    minHeight: 96,
     backgroundColor: colors.card,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -261,18 +261,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   statTileHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  statTileDot: { width: 6, height: 6, borderRadius: 3 },
+  statTileDot: { width: 7, height: 7, borderRadius: 3.5 },
   statTileLabel: {
-    color: colors.textMuted,
-    fontSize: 10,
+    color: colors.textBody,
+    fontSize: fontSize.sm,
     fontWeight: '700',
     letterSpacing: 0.6,
     flexShrink: 1,
   },
   statTileValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 6 },
-  statTileValue: { fontSize: fontSize.xl, fontWeight: '800', letterSpacing: -0.4 },
-  statTileUnit: { color: colors.textMuted, fontSize: fontSize.xs, fontWeight: '700' },
-  statTileHint: { color: colors.textMuted, fontSize: 10, marginTop: 4 },
+  // KPI 主数值 —— 卡片的绝对视觉中心
+  statTileValue: { fontSize: fontSize.metric, fontWeight: '800', letterSpacing: -1 },
+  statTileUnit: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
+  statTileHint: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 4 },
 
   toggleHit: { padding: 6 },
   toggleTrack: {
@@ -314,7 +315,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   pillDot: { width: 5, height: 5, borderRadius: 3 },
-  pillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  pillText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
 
   toast: {
     position: 'absolute',
