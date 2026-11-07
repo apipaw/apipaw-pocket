@@ -12,6 +12,7 @@ import Svg, { Line, Path, Text as SvgText } from 'react-native-svg';
 import { usePawStore } from '../store/usePawStore';
 import {
   RoyaltyResponse,
+  describeCloudError,
   fetchCreatorRoyalty,
   withdrawCreatorRoyalty,
 } from '../api/cloudClient';
@@ -138,7 +139,7 @@ const RoyaltyCard: React.FC = () => {
       const res = await fetchCreatorRoyalty(24);
       setData(res);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e?.message || '加载版税数据失败');
+      setError(describeCloudError(e));
     } finally {
       setLoading(false);
     }
@@ -168,16 +169,19 @@ const RoyaltyCard: React.FC = () => {
       setWithdrawAmount('');
       await load();
     } catch (e: any) {
-      setWithdrawError(e?.response?.data?.detail || e?.message || '提现失败');
+      setWithdrawError(describeCloudError(e));
     } finally {
       setWithdrawing(false);
     }
   }, [withdrawAmount, load]);
 
   return (
-    <View style={styles.card} testID="royalty-card">
+    <View style={styles.card} testID="royalty-card" id="apx-glass-royalty">
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>💎 创作者版税大盘</Text>
+        <View style={styles.cardTitleWrap}>
+          <View style={styles.titleDot} />
+          <Text style={styles.cardTitle}>创作者版税大盘</Text>
+        </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={load} activeOpacity={0.75}>
           <Text style={styles.refreshBtnText}>刷新</Text>
         </TouchableOpacity>
@@ -191,7 +195,7 @@ const RoyaltyCard: React.FC = () => {
       ) : error ? (
         <View style={styles.errorWrap}>
           <Text style={styles.errorText}>⚠️ {error}</Text>
-          <Text style={styles.errorHint}>请确认 APIPaw Cloud 网关已启动，且当前账号已绑定创作者钱包</Text>
+          <Text style={styles.errorHint}>请确认云端网关 cloud.apipaw.com 可达，且当前账号已绑定创作者钱包</Text>
         </View>
       ) : (
         <>
@@ -412,7 +416,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -422,7 +425,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
-  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: 'bold' },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  titleDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.cyan,
+    shadowColor: colors.cyan,
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
   refreshBtn: {
     backgroundColor: colors.warnSoft,
     borderRadius: radius.pill,

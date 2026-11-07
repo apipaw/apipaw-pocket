@@ -20,6 +20,7 @@ import { usePawStore } from '../store/usePawStore';
 import {
   ModelTopology,
   TopologyNode,
+  describeCloudError,
   fetchCreatorModels,
   fetchCreatorTopology,
 } from '../api/cloudClient';
@@ -73,7 +74,7 @@ const PipelineMeshCard: React.FC = () => {
         setTopologyModelId(list[0].model_id);
       }
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e?.message || '加载创作者模型失败');
+      setError(describeCloudError(e));
     }
   }, [topologyModelId, setTopologyModelId]);
 
@@ -87,7 +88,7 @@ const PipelineMeshCard: React.FC = () => {
       setSelectedIndex(0);
     } catch (e: any) {
       setTopology(null);
-      setError(e?.response?.data?.detail || e?.message || '加载拓扑失败');
+      setError(describeCloudError(e));
     } finally {
       setLoading(false);
     }
@@ -120,9 +121,12 @@ const PipelineMeshCard: React.FC = () => {
   }, [nodes.length, meshWidth]);
 
   return (
-    <View style={styles.card} testID="pipeline-mesh-card">
+    <View style={styles.card} testID="pipeline-mesh-card" id="apx-glass-mesh">
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>🕸️ 算力拓扑网格</Text>
+        <View style={styles.cardTitleWrap}>
+          <View style={styles.titleDot} />
+          <Text style={styles.cardTitle}>算力拓扑网格</Text>
+        </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={loadTopology} activeOpacity={0.75}>
           <Text style={styles.refreshBtnText}>刷新</Text>
         </TouchableOpacity>
@@ -365,7 +369,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -375,7 +378,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
-  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: 'bold' },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  titleDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.cyan,
+    shadowColor: colors.cyan,
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
   refreshBtn: {
     backgroundColor: colors.accentSoft,
     borderRadius: radius.pill,

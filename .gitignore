@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# e2e 产物
+e2e/report.json
+e2e/design-report.json
+e2e/shots/

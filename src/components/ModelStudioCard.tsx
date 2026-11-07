@@ -12,6 +12,7 @@ import * as Clipboard from 'expo-clipboard';
 import { usePawStore } from '../store/usePawStore';
 import {
   ParsedModel,
+  describeCloudError,
   parseCreatorModel,
   registerCreatorModel,
 } from '../api/cloudClient';
@@ -67,7 +68,7 @@ const ModelStudioCard: React.FC = () => {
       setVramGb(meta.min_vram_gb);
     } catch (e: any) {
       setParsed(null);
-      setError(e?.response?.data?.detail || e?.message || '解析模型链接失败');
+      setError(describeCloudError(e));
     } finally {
       setParsing(false);
     }
@@ -119,7 +120,7 @@ const ModelStudioCard: React.FC = () => {
       setTopologyModelId(parsed.model_id);
       setSuccess(`✅ 模型 ${parsed.model_id} 已上架生态，已同步至买家 Playground 模型列表`);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e?.message || '上架失败');
+      setError(describeCloudError(e));
     } finally {
       setSubmitting(false);
     }
@@ -128,9 +129,12 @@ const ModelStudioCard: React.FC = () => {
   const layers = parsed?.num_hidden_layers ?? 28;
 
   return (
-    <View style={styles.card} testID="model-studio-card">
+    <View style={styles.card} testID="model-studio-card" id="apx-glass-studio">
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>🛠️ 模型发布工作台</Text>
+        <View style={styles.cardTitleWrap}>
+          <View style={styles.titleDot} />
+          <Text style={styles.cardTitle}>模型发布工作台</Text>
+        </View>
         <Text style={styles.cardSub}>PAWMODEL · 免代码上架</Text>
       </View>
 
@@ -293,7 +297,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -303,7 +306,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
-  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: 'bold' },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  titleDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.cyan,
+    shadowColor: colors.cyan,
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
   cardSub: { color: colors.textMuted, fontSize: fontSize.xs },
 
   stepBlock: {

@@ -16,6 +16,7 @@ import {
   CLOUD_BASE_URL,
   ModelInfo,
   StreamChatHandle,
+  describeCloudError,
   fetchModels,
   streamChat,
 } from '../api/cloudClient';
@@ -168,6 +169,7 @@ const PlaygroundCard: React.FC = () => {
 
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [exporterOpen, setExporterOpen] = useState(false);
   const [exporterTab, setExporterTab] = useState<ExporterTab>('curl');
@@ -193,13 +195,16 @@ const PlaygroundCard: React.FC = () => {
     fetchModels()
       .then((res) => {
         if (!active) return;
+        setModelsError(null);
         setModels(res.data);
         if (res.data.length > 0 && !res.data.some((m) => m.id === selectedModelId)) {
           setSelectedModelId(res.data[0].id);
         }
       })
-      .catch(() => {
-        /* 模型目录不可用时下拉框将提示重试 */
+      .catch((e) => {
+        /* 模型目录不可用时给出可读提示，便于判断是网关还是密钥问题 */
+        if (!active) return;
+        setModelsError(describeCloudError(e));
       })
       .finally(() => {
         if (active) setModelsLoading(false);
@@ -413,11 +418,15 @@ for await (const chunk of stream) {
   const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
 
   return (
-    <View style={styles.card} testID="playground-card">
+    <View style={styles.card} testID="playground-card" id="apx-glass-playground">
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>🧪 掌上 Playground 试炼场</Text>
+        <View style={styles.cardTitleWrap}>
+          <View style={styles.titleDot} />
+          <Text style={styles.cardTitle}>掌上 Playground 试炼场</Text>
+        </View>
         <TouchableOpacity
           style={styles.exportBtn}
+          id="apx-glow-export"
           onPress={() => setExporterOpen(true)}
           activeOpacity={0.75}
         >
@@ -439,7 +448,9 @@ for await (const chunk of stream) {
               ? '加载中...'
               : activeModel
                 ? activeModel.display_name
-                : '未选择模型'}
+                : modelsError
+                  ? '模型目录不可用'
+                  : '未选择模型'}
           </Text>
         </View>
         <View style={styles.modelSelectorRight}>
@@ -454,6 +465,10 @@ for await (const chunk of stream) {
         </View>
       </TouchableOpacity>
 
+      {modelsError && (
+        <Text style={styles.modelsError}>⚠️ {modelsError}</Text>
+      )}
+
       {activeModel && (
         <Text style={styles.modelMeta}>
           {activeModel.description} · 输入 ${activeModel.pricing.prompt_per_1k_usd}/1K ·
@@ -461,8 +476,16 @@ for await (const chunk of stream) {
         </Text>
       )}
 
-      {/* 对话区 */}
-      <View style={styles.conversation}>
+      {/* 对话区 —— 视觉上是一台真实终端（内阴影 + 顶部高光条）*/}
+      <View style={styles.conversation} id="apx-term">
+        <View style={styles.termBar} id="apx-term-bar">
+          <View style={styles.termDots}>
+            <View style={[styles.termDot, { backgroundColor: colors.danger }]} />
+            <View style={[styles.termDot, { backgroundColor: colors.warn }]} />
+            <View style={[styles.termDot, { backgroundColor: colors.accent }]} />
+          </View>
+          <Text style={styles.termLabel}>apipaw://playground — streaming session</Text>
+        </View>
         <ScrollView
           style={styles.conversationScroll}
           contentContainerStyle={styles.conversationContent}
@@ -470,6 +493,7 @@ for await (const chunk of stream) {
         >
           {messages.length === 0 && (
             <View style={styles.emptyHint}>
+              <Text style={styles.emptyHintTitle}>终端待命</Text>
               <Text style={styles.emptyHintText}>
                 选择模型后输入 Prompt，即可体验流式推理与思考链展示。
               </Text>
@@ -539,8 +563,10 @@ for await (const chunk of stream) {
         ) : (
           <TouchableOpacity
             style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
+            id={input.trim() ? 'apx-send-btn' : 'apx-send-btn apx-send-disabled'}
             onPress={handleSend}
             disabled={!input.trim()}
+            testID="playground-send"
           >
             <Text style={styles.sendBtnText}>发送</Text>
           </TouchableOpacity>
@@ -643,7 +669,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -653,10 +678,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  titleDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.cyan,
+    shadowColor: colors.cyan,
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
   cardTitle: {
     color: colors.textPrimary,
     fontSize: fontSize.lg,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
   exportBtn: {
     backgroundColor: colors.purpleSoft,
@@ -713,18 +750,43 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     marginTop: spacing.sm,
   },
+  modelsError: { color: colors.danger, fontSize: fontSize.xs, marginTop: spacing.xs },
 
   conversation: {
     marginTop: spacing.md,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.bgDeep,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.divider,
-    height: 320,
+    borderColor: colors.border,
+    height: 340,
+    overflow: 'hidden',
+  },
+  termBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  termDots: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  termDot: { width: 8, height: 8, borderRadius: 4, opacity: 0.85 },
+  termLabel: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontFamily: 'monospace',
+    letterSpacing: 0.4,
   },
   conversationScroll: { flex: 1 },
   conversationContent: { padding: spacing.md, gap: spacing.md },
-  emptyHint: { paddingVertical: spacing.xl, alignItems: 'center' },
+  emptyHint: { paddingVertical: spacing.xl, alignItems: 'center', gap: 6 },
+  emptyHintTitle: {
+    color: colors.cyan,
+    fontSize: fontSize.sm,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
   emptyHintText: {
     color: colors.textMuted,
     fontSize: fontSize.sm,
@@ -817,7 +879,7 @@ const styles = StyleSheet.create({
   },
   sendBtn: {
     height: 44,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
     borderRadius: radius.md,
     backgroundColor: colors.accent,
     alignItems: 'center',
@@ -825,7 +887,7 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { backgroundColor: colors.textMuted },
   stopBtn: { backgroundColor: colors.dangerDark },
-  sendBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: fontSize.md },
+  sendBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: fontSize.md, letterSpacing: 0.5 },
 
   modalBackdrop: {
     flex: 1,

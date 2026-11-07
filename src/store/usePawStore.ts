@@ -2,6 +2,34 @@ import { create } from 'zustand';
 
 type RoleMode = 'BUYER' | 'HOST';
 
+/**
+ * API Key 持久化 —— 静态站点部署后没有后端会话，
+ * 密钥保存在浏览器 localStorage，刷新页面不丢。
+ */
+const API_KEY_STORAGE_KEY = 'apipaw.api_key';
+
+const readPersistedApiKey = (): string => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(API_KEY_STORAGE_KEY);
+      if (stored) return stored;
+    }
+  } catch {
+    /* 隐私模式 / 非浏览器环境 —— 退化为仅内存 */
+  }
+  return (process.env.EXPO_PUBLIC_API_KEY as string | undefined) || '';
+};
+
+const persistApiKey = (key: string): void => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(API_KEY_STORAGE_KEY, key);
+    }
+  } catch {
+    /* 忽略写入失败 */
+  }
+};
+
 /** HOST 端内部分段切换 */
 export type HostTab = 'NODES' | 'STUDIO' | 'ROYALTY';
 
@@ -35,7 +63,7 @@ interface PawState {
 
 export const usePawStore = create<PawState>((set) => ({
   roleMode: 'BUYER',
-  apiKey: 'paw-sk-demo1234567890',
+  apiKey: readPersistedApiKey(),
   balanceUsd: 100.0,
   spentTodayUsd: 0,
   dailyLimitUsd: 500.0,
@@ -47,7 +75,10 @@ export const usePawStore = create<PawState>((set) => ({
   topologyModelId: 'qwen-2.5-72b',
 
   setRoleMode: (roleMode) => set({ roleMode }),
-  setApiKey: (apiKey) => set({ apiKey }),
+  setApiKey: (apiKey) => {
+    persistApiKey(apiKey);
+    set({ apiKey });
+  },
   setBalanceUsd: (balanceUsd) => set({ balanceUsd }),
   setSpentTodayUsd: (spentTodayUsd) => set({ spentTodayUsd }),
   setDailyLimitUsd: (dailyLimitUsd) => set({ dailyLimitUsd }),

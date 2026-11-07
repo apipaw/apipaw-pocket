@@ -1,24 +1,29 @@
 import axios from 'axios';
-import { Platform } from 'react-native';
+import type { AxiosRequestConfig } from 'axios';
 import { usePawStore } from '../store/usePawStore';
 
 /**
  * APIPaw Cloud 网关地址。
- * - Web / iOS 模拟器: http://127.0.0.1:8000
- * - Android 模拟器:   http://10.0.2.2:8000
- * 真机调试请设置环境变量 EXPO_PUBLIC_API_BASE_URL 指向局域网 IP。
+ * - 云端部署 (Web 静态站 / 已发布 App): https://cloud.apipaw.com
+ * - 本地联调: 构建时设置 EXPO_PUBLIC_API_BASE_URL 覆盖为 http://127.0.0.1:8000
+ *   (Android 模拟器用 http://10.0.2.2:8000)
+ *
+ * EXPO_PUBLIC_* 变量由 Metro 在打包时内联进产物，因此该值会随静态站点一同上线。
  */
-const FALLBACK_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8000',
-  default: 'http://127.0.0.1:8000',
-}) as string;
+const FALLBACK_BASE_URL = 'https://cloud.apipaw.com';
 
 export const CLOUD_BASE_URL: string =
   (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) || FALLBACK_BASE_URL;
 
+/**
+ * 网关经 Cloudflare 回源，24 小时聚合分析接口实测冷路径可达 100s 以上，
+ * 因此统一放宽超时，避免看板刚挂载就判定失败。
+ */
+export const CLOUD_REQUEST_TIMEOUT_MS = 120000;
+
 export const cloudApi = axios.create({
   baseURL: CLOUD_BASE_URL,
-  timeout: 15000,
+  timeout: CLOUD_REQUEST_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -30,6 +35,57 @@ cloudApi.interceptors.request.use((config) => {
   }
   return config;
 });
+
+/**
+ * GET 请求的自动重试。
+ * 云端网关回源链路 (Cloudflare -> nginx -> uvicorn) 偶发断连，
+ * 浏览器会把这类中断记为 ERR_NETWORK（服务端日志里其实已经记成 200）。
+ * 这里对幂等的 GET 做有限次退避重试，避免看板因为一次抖动就整块报错。
+ * 注意：超时 (ECONNABORTED) 不重试 —— 聚合接口本来就慢，重试只会更久。
+ */
+const MAX_GET_RETRIES = 2;
+
+cloudApi.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error?.config as (AxiosRequestConfig & { __apipawRetry?: number }) | undefined;
+    if (!config) return Promise.reject(error);
+
+    const method = (config.method || 'get').toLowerCase();
+    const status = error?.response?.status;
+    const isNetworkError = !status && error?.code !== 'ECONNABORTED';
+    const isServerError = !!status && status >= 500;
+    const retried = config.__apipawRetry || 0;
+
+    if (method !== 'get' || (!isNetworkError && !isServerError) || retried >= MAX_GET_RETRIES) {
+      return Promise.reject(error);
+    }
+
+    config.__apipawRetry = retried + 1;
+    await new Promise((resolve) => setTimeout(resolve, 1500 * config.__apipawRetry!));
+    return cloudApi(config);
+  },
+);
+
+/**
+ * 把 axios 异常翻译成看板可直接展示的中文提示。
+ * 401 是上云后最常见的失败原因（密钥缺失/失效），必须给出可操作指引。
+ */
+export const describeCloudError = (e: unknown): string => {
+  const err = e as {
+    response?: { status?: number; data?: { detail?: string } };
+    message?: string;
+    code?: string;
+  };
+  const status = err?.response?.status;
+  if (status === 401) return 'API Key 无效或未设置，请点击右上角「设置密钥」填入有效密钥';
+  if (status === 403) return '当前账号未绑定创作者钱包，无法访问创作者接口';
+  if (status === 404) return '云端网关接口不存在，请确认后端版本';
+  if (status && status >= 500) return `云端网关异常 (HTTP ${status})，请稍后重试`;
+  if (err?.code === 'ECONNABORTED') return '请求超时，云端聚合耗时较长，请稍后重试';
+  if (!status && err?.code === 'ERR_NETWORK') return '网络不可达，请检查到 cloud.apipaw.com 的连接';
+  return err?.response?.data?.detail || err?.message || '网络请求失败';
+};
 
 // ----------------- 类型定义 -----------------
 
@@ -405,6 +461,8 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
   let pending = '';
   let consumed = 0;
   let settled = false;
+  /** 是否已经收到过正文 —— 用于区分「流被截断」与「流正常结束」 */
+  let receivedContent = false;
 
   const fail = (message: string) => {
     if (settled) return;
@@ -448,8 +506,14 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
       }
 
       const delta = chunk.choices?.[0]?.delta;
-      if (delta?.reasoning_content) onReasoning?.(delta.reasoning_content);
-      if (delta?.content) onContent?.(delta.content);
+      if (delta?.reasoning_content) {
+        receivedContent = true;
+        onReasoning?.(delta.reasoning_content);
+      }
+      if (delta?.content) {
+        receivedContent = true;
+        onContent?.(delta.content);
+      }
       if (chunk.usage) onUsage?.(chunk.usage);
     }
   };
@@ -473,6 +537,14 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
         handleFrame(pending);
         pending = '';
       }
+      finish();
+      return;
+    }
+
+    // 网关回源链路 (Cloudflare -> nginx -> uvicorn) 结束 SSE 响应时,
+    // 连接可能没有以规范的 chunked 结尾收束, 浏览器会把它判为网络错误 (status=0),
+    // 尽管正文已经完整送达。此时按正常结束处理, 不再提示用户「推理请求失败」。
+    if (xhr.status === 0 && receivedContent) {
       finish();
       return;
     }
@@ -508,12 +580,14 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
 
   return {
     abort: () => {
+      // 必须先置 settled —— xhr.abort() 会同步触发 onreadystatechange (readyState=4, status=0)，
+      // 若此时 settled 仍为 false，会被误判成一次真实失败并弹出「推理请求失败 (HTTP 0)」
+      settled = true;
       try {
         xhr.abort();
       } catch {
         /* ignore */
       }
-      settled = true;
     },
   };
 };

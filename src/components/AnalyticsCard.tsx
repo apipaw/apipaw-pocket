@@ -11,6 +11,7 @@ import { usePawStore } from '../store/usePawStore';
 import {
   AnalyticsResponse,
   AnalyticsTier,
+  describeCloudError,
   fetchAnalytics,
   updateDailyLimit,
 } from '../api/cloudClient';
@@ -28,10 +29,13 @@ const MIN_LIMIT_USD = 10;
 const MAX_LIMIT_USD = 500;
 const LIMIT_STEP_USD = 10;
 
-const clampLimit = (value: number): number => {
-  const clamped = Math.min(MAX_LIMIT_USD, Math.max(MIN_LIMIT_USD, value));
-  return Math.round(clamped / LIMIT_STEP_USD) * LIMIT_STEP_USD;
-};
+/**
+ * 仅把外部回填的限额收敛到滑块可表示区间，不做取整 ——
+ * 服务端存量值可能是任意数（后端只校验 [10,500]），取整会让显示值与真实值不一致。
+ * 用户拖动产生的步进取整由 Slider 内部的 clamp 负责。
+ */
+const boundLimit = (value: number): number =>
+  Math.min(MAX_LIMIT_USD, Math.max(MIN_LIMIT_USD, value));
 
 // ----------------- 24 小时 Token 折线图 -----------------
 
@@ -300,10 +304,14 @@ const AnalyticsCard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chartWidth, setChartWidth] = useState(320);
-  const [limit, setLimit] = useState(clampLimit(dailyLimitUsd));
+  const [limit, setLimit] = useState(boundLimit(dailyLimitUsd));
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
 
-  const skipFirstSync = useRef(true);
+  /**
+   * 限额变更来源标记：只有用户拖动滑块才允许回写网关。
+   * 外部回填（App 拉取账户信息 / PUT 响应）若触发 PUT，会把服务端限额静默改写。
+   */
+  const limitFromUserRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -314,7 +322,7 @@ const AnalyticsCard: React.FC = () => {
         setSpentTodayUsd(res.totals.cost_usd);
       }
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e?.message || '加载分析数据失败');
+      setError(describeCloudError(e));
     } finally {
       setLoading(false);
     }
@@ -325,17 +333,24 @@ const AnalyticsCard: React.FC = () => {
     load();
   }, [load]);
 
-  // 外部（如 App 拉取账户信息）更新限额时同步到滑块
+  // 外部（如 App 拉取账户信息）更新限额时只回填滑块显示，绝不回写网关
   useEffect(() => {
-    setLimit(clampLimit(dailyLimitUsd));
+    limitFromUserRef.current = false;
+    setLimit(boundLimit(dailyLimitUsd));
   }, [dailyLimitUsd]);
 
-  // 滑动后自动同步至后端数据库（防抖 450ms）
+  const handleLimitChange = useCallback((value: number) => {
+    limitFromUserRef.current = true;
+    setLimit(value);
+  }, []);
+
+  // 滑动后自动同步至后端数据库（防抖 450ms）—— 仅限用户主动拖动
   useEffect(() => {
-    if (skipFirstSync.current) {
-      skipFirstSync.current = false;
+    if (!limitFromUserRef.current) {
+      limitFromUserRef.current = false;
       return;
     }
+    limitFromUserRef.current = false;
     setSyncState('syncing');
     const timer = setTimeout(async () => {
       try {
@@ -354,9 +369,12 @@ const AnalyticsCard: React.FC = () => {
   const totals = data?.totals;
 
   return (
-    <View style={styles.card} testID="analytics-card">
+    <View style={styles.card} testID="analytics-card" id="apx-glass-analytics">
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>📊 流量分析与额度管理</Text>
+        <View style={styles.cardTitleWrap}>
+          <View style={styles.titleDot} />
+          <Text style={styles.cardTitle}>流量分析与额度管理</Text>
+        </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={load} activeOpacity={0.75}>
           <Text style={styles.refreshBtnText}>刷新</Text>
         </TouchableOpacity>
@@ -370,7 +388,7 @@ const AnalyticsCard: React.FC = () => {
       ) : error ? (
         <View style={styles.errorWrap}>
           <Text style={styles.errorText}>⚠️ {error}</Text>
-          <Text style={styles.errorHint}>请确认 APIPaw Cloud 网关 (127.0.0.1:8000) 已启动</Text>
+          <Text style={styles.errorHint}>请确认云端网关 cloud.apipaw.com 可达，且 API Key 有效</Text>
         </View>
       ) : (
         <>
@@ -489,7 +507,7 @@ const AnalyticsCard: React.FC = () => {
               value={limit}
               spentToday={totals?.cost_usd ?? spentTodayUsd}
               syncState={syncState}
-              onChange={setLimit}
+              onChange={handleLimitChange}
             />
           </View>
         </>
@@ -503,7 +521,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -513,7 +530,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
-  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: 'bold' },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  titleDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.cyan,
+    shadowColor: colors.cyan,
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  cardTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800' },
   refreshBtn: {
     backgroundColor: colors.accentSoft,
     borderRadius: radius.pill,
