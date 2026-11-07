@@ -19,6 +19,8 @@ const { chromium } = require('playwright');
 const DIST = path.join(__dirname, '..', 'dist');
 const SHOT_DIR = path.join(__dirname, 'shots');
 const API_KEY = process.env.APIPAW_API_KEY || 'paw_demo_key';
+// 可选：直接对已启动的地址做验收（开发服务器 / 线上站点），跳过本地静态服务器
+const EXTERNAL_URL = process.argv[2] || '';
 
 const results = [];
 const check = (cond, name, detail = '') => {
@@ -52,9 +54,9 @@ function serve(root) {
 
 async function main() {
   fs.mkdirSync(SHOT_DIR, { recursive: true });
-  const server = await serve(DIST);
-  const port = server.address().port;
-  const base = `http://127.0.0.1:${port}`;
+  const server = EXTERNAL_URL ? null : await serve(DIST);
+  const port = server ? server.address().port : 0;
+  const base = EXTERNAL_URL || `http://127.0.0.1:${port}`;
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, locale: 'zh-CN' });
@@ -205,7 +207,7 @@ async function main() {
   const failed = results.filter((r) => !r.pass);
   console.log(`\n===== ${results.length - failed.length}/${results.length} 通过 =====`);
   await browser.close();
-  server.close();
+  if (server) server.close();
   process.exit(failed.length ? 1 : 0);
 }
 
