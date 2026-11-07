@@ -81,8 +81,9 @@ async function main() {
   });
 
   console.log(`\n[1] 打开 ${base}`);
-  await page.goto(base, { waitUntil: 'commit', timeout: 60000 });
-  await page.waitForSelector('text=APIPaw Pocket', { timeout: 45000 });
+  await page.goto(base, { waitUntil: 'commit', timeout: 90000 });
+  // 走 CF 边缘时 800KB 的 bundle 可能要几十秒才跑起来 —— 给足超时
+  await page.waitForSelector('text=APIPaw Pocket', { timeout: 90000 });
   await page.waitForTimeout(2500);
 
   // ---- 1. Web 主题层注入 ----
@@ -244,8 +245,11 @@ async function main() {
   // 无密钥时的 Toast + 呼吸灯
   const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 960 }, locale: 'zh-CN' });
   const p2 = await ctx2.newPage();
-  await p2.goto(base, { waitUntil: 'commit', timeout: 60000 });
-  await p2.waitForTimeout(2500);
+  await p2.goto(base, { waitUntil: 'commit', timeout: 90000 });
+  // 等应用真正挂载 —— 线上经 CF 边缘时固定 sleep 不足以覆盖首屏
+  await p2.waitForSelector('#apx-root', { timeout: 90000 });
+  await p2.waitForSelector('#apx-toast', { timeout: 30000 }).catch(() => {});
+  await p2.waitForTimeout(1200);
   const toast2 = await p2.locator('#apx-toast').count();
   check(toast2 === 1, '未配置密钥时显示 Toast', `count=${toast2}`);
 
