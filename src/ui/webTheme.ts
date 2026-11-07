@@ -178,22 +178,28 @@ body {
 [id^="apx-dot-alert"] { animation-name: apx-breathe-alert; }
 
 /* ================= Toast ================= */
+/* 固定在右下角：顶栏右侧是「设置密钥 / 切换视角」等全局操作按钮，
+   Toast 绝不与之重叠。容器整体对鼠标事件穿透，只有卡片本体可交互。 */
 [id^="apx-toast"] {
   position: fixed !important;
-  top: 18px;
-  right: 18px;
+  top: auto !important;
+  bottom: 24px;
+  right: 24px;
+  left: auto;
   z-index: 9999;
-  max-width: 360px;
+  max-width: min(360px, calc(100vw - 32px));
   background-color: rgba(11, 11, 17, 0.94) !important;
   backdrop-filter: blur(18px) saturate(160%);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   border: 1px solid rgba(251, 191, 36, 0.34) !important;
   border-radius: 14px !important;
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
   animation: apx-toast-in 0.42s cubic-bezier(0.16, 1, 0.3, 1);
 }
+[id^="apx-toast"] > * { pointer-events: auto; }
 @keyframes apx-toast-in {
-  from { opacity: 0; transform: translateY(-14px) scale(0.96); }
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
   to   { opacity: 1; transform: none; }
 }
 

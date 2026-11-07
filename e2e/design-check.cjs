@@ -192,8 +192,61 @@ async function main() {
   await p2.goto(base, { waitUntil: 'commit', timeout: 60000 });
   await p2.waitForTimeout(2500);
   const toast2 = await p2.locator('#apx-toast').count();
-  check(toast2 === 1, '未配置密钥时显示右上角 Toast', `count=${toast2}`);
+  check(toast2 === 1, '未配置密钥时显示 Toast', `count=${toast2}`);
+
+  // Toast 绝不能遮挡顶栏右侧的全局操作按钮 —— 几何断言
+  const overlap = await p2.evaluate(() => {
+    const rectOf = (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    };
+    const toast = rectOf('#apx-toast');
+    const targets = {
+      keyBtn: rectOf('#apx-glow-key'),
+      roleBtn: rectOf('#apx-glow-role'),
+    };
+    const hit = (a, b) =>
+      !!a && !!b && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    return {
+      toast,
+      targets,
+      overlaps: Object.keys(targets).filter((k) => hit(toast, targets[k])),
+      // Toast 底部点击穿透：容器 pointer-events 必须是 none
+      pointerEvents: toast ? getComputedStyle(document.querySelector('#apx-toast')).pointerEvents : null,
+      viewportH: window.innerHeight,
+    };
+  });
+  check(
+    overlap.toast !== null && overlap.overlaps.length === 0,
+    'Toast 不遮挡顶栏操作按钮',
+    `overlaps=${JSON.stringify(overlap.overlaps)}`,
+  );
+  check(
+    overlap.pointerEvents === 'none',
+    'Toast 容器对鼠标事件穿透',
+    `pointer-events=${overlap.pointerEvents}`,
+  );
+  check(
+    !!overlap.toast && overlap.toast.y + overlap.toast.h <= overlap.viewportH + 1,
+    'Toast 完全位于视口内',
+    `bottom=${overlap.toast ? Math.round(overlap.toast.y + overlap.toast.h) : 'n/a'} / vh=${overlap.viewportH}`,
+  );
   await p2.screenshot({ path: path.join(SHOT_DIR, 'design-03-toast.png') });
+
+  // 功能验证：Toast 存在时，顶栏按钮依然可点（未被遮挡/未被吞掉事件）
+  // 首次访问无密钥会自动弹出密钥设置框（这是有意的模态层），先关掉它，
+  // 剩下的唯一浮层就是 Toast —— 这才是本次要验证的遮挡源。
+  await p2.locator('text=取消').first().click({ timeout: 15000 });
+  await p2.waitForTimeout(800);
+  const toastStill = await p2.locator('#apx-toast').count();
+  check(toastStill === 1, '关闭密钥弹窗后 Toast 仍然提示未配置凭证', `count=${toastStill}`);
+
+  await p2.locator('#apx-glow-role').click({ timeout: 15000 });
+  await p2.waitForTimeout(1200);
+  const switched = await p2.locator('[data-testid="host-tabs"]').count();
+  check(switched === 1, 'Toast 存在时仍可点击「切换视角」按钮', `host-tabs=${switched}`);
 
   // ---- 5. 无运行时错误 ----
   console.log('\n[6] 运行时');

@@ -318,7 +318,8 @@ const styles = StyleSheet.create({
 
   toast: {
     position: 'absolute',
-    top: spacing.lg,
+    // 固定在右下角 —— 绝不能遮挡顶栏右侧的全局操作按钮
+    bottom: spacing.lg,
     right: spacing.lg,
     flexDirection: 'row',
     borderRadius: radius.lg,
@@ -329,7 +330,7 @@ const styles = StyleSheet.create({
     maxWidth: 360,
   },
   toastAccent: { width: 3 },
-  toastBody: { padding: spacing.md, gap: 4, flexShrink: 1 },
+  toastBody: { padding: spacing.md, gap: 4, flexShrink: 1, pointerEvents: 'auto' },
   toastTitle: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '800' },
   toastMessage: { color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 17 },
   toastAction: { marginTop: 4, alignSelf: 'flex-start' },
