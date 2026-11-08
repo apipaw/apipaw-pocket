@@ -6,6 +6,9 @@
 > 摸底时间：2026-11-08　摸底对象：`/opt/apipaw-cloud/{server.py(1715行), db.py(1222行)}`
 > + `node_registry.db` + `apipaw.db`（生产实时数据）
 > 本文档**只读分析产出，未改动任何后端代码**。
+>
+> **进度更新（2026-11-08 晚）**：阶段三第一阶段已完成 **TODO-16 / 01 / 02 / 03**，
+> 生产后端已部署并验证（详见各节「状态」标注与 `docs/PHASE3-P0-REPORT.md`）。
 
 ---
 
@@ -46,6 +49,9 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-01 业主端点零鉴权 —— 公网可任意读写
 
+> **状态：✅ 已完成（2026-11-08）** —— 新增 `require_owner()`；三个端点接入，
+> 缺 key/无效 key → 401，有效非 OWNER → 403，OWNER → 200。`/health` 保持公开但只回计数。
+
 **现状**
 `server.py` 三个端点**没有任何 `authorization` 参数**，实测（公网无任何凭据）：
 
@@ -72,6 +78,11 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-02 缺失「业主」角色模型
 
+> **状态：✅ 已完成（2026-11-08）** —— `users` 加 `role` / `owner_wallet`，
+> `paw_demo_key` → OWNER；`init_db` 的一次性迁移只在「本次真的加了列」时执行，
+> 之后运维可手工改角色不会被启动流程改回去。
+> `/api/v1/user/usage` 响应追加 `role` 字段（向后兼容）。
+
 **现状**
 `users` 表只有 `creator_wallet` / `creator_id`（创作者身份 = 钱包），**没有 owner / role 概念**。
 业主面板与创作者面板共用一个账号体系，无法区分"能看全网节点"和"只能看自己的模型"。
@@ -86,6 +97,10 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 ---
 
 ### TODO-03 Toggle 的 INSERT 副作用 —— 可凭空伪造节点
+
+> **状态：✅ 已完成（2026-11-08）** —— `toggle_node_pause` 改为**只 UPDATE**，
+> 存在性口径 `node_registry ∪ nodes_history`，两边都没有 → 抛 `NodeNotFoundError` → HTTP 404。
+> 实测：OWNER toggle 不存在的节点返回 404，`nodes_history` 行数不变、无 `probe-*` 残留。
 
 **现状**
 `db.py:1016 toggle_node_pause()`：node_id 不存在时**直接 INSERT 一行** `is_paused=1`。
@@ -312,6 +327,11 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 ## P4 · 工程债（进入深度重构前先铺路）
 
 ### TODO-16 后端代码自 v1.0.0 起全部未提交 —— 无版本安全网
+
+> **状态：✅ 已完成（2026-11-08）** —— 基线 commit `721c485`
+> （`chore: 📦 备份 DAY11-DAY15 未提交基线代码`，1661+/605-）；
+> `.gitignore` 补 `*.bak*` / `backups/` / `*.log`；16 个 `.bak` 归档到 `backups/legacy-bak/`；
+> `cloud.log` 取消跟踪；`manage_node.py` 纳入管理。P0 修复 commit `966ce58`。
 
 **现状**
 `/opt/apipaw-cloud` 是 git 仓库，但只有 1 个提交（`ffd443a v1.0.0`），
