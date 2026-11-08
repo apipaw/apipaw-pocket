@@ -17,8 +17,12 @@
 > **进度更新（2026-11-08 夜 · 批次 3）**：阶段三批次 3「计费系统改造（方案 B：预扣—结算）」
 > 已完成 **TODO-08 / 09**（全量）、**TODO-11**（后端部分）。
 > 摸底审计见 `docs/PHASE3-BATCH3-BILLING-AUDIT.md`，实施验证见 `docs/PHASE3-BATCH3-REPORT.md`。
-> **TODO-10（充值接口）仍未做** —— 系统至今没有充值/退款/冲正接口，余额只减不增，
-> 是下一批次的头号任务。
+>
+> **进度更新（2026-11-08 午 · 批次 4「充值系统与收尾清理」）**：已完成 **TODO-10**（充值接口）、
+> **TODO-12**（后端配合侧：实时性缓存契约）、**TODO-15**（注册表垃圾数据物理清理）。
+> 实施验证见 `docs/PHASE3-BATCH4-REPORT.md`。至此「余额只减不增」的历史问题闭环：
+> 系统首次拥有**资金进入**的唯一入口（`POST /api/v1/user/recharge`）。
+> 仍未做：真实支付通道（当前为演示充值）、退款/冲正接口。
 
 ---
 
@@ -272,6 +276,11 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-10 缺失充值/钱包接口，余额只减不增
 
+> **状态：✅ 已完成（2026-11-08，批次 4）** —— 后端 commit `d37a0ad`
+> 详见 `docs/PHASE3-BATCH4-REPORT.md`。
+> **仍未做**：真实支付通道（当前是演示充值，响应里显式带 `demo: true`）、
+> 退款 / 冲正接口。
+
 **现状**
 `users` 表里只有 init_db 播种的初始余额，**没有任何充值接口**。
 `POST /api/v1/auth/apikey` 能建新 key 并给初始余额（默认 $10），但存量账户无法充值。
@@ -283,6 +292,13 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 3. 充值后需通知前端刷新余额 → 见 TODO-12
 
 **验收**：充值后 `balance_usd` 增加且 ledger 有对应流水。
+
+**落地实况**
+- `db.add_balance()`：单个 `BEGIN IMMEDIATE` 写事务内 `UPDATE users SET balance_usd = balance_usd + ?`
+  + 写一条 `balance_ledger`（`entry_type='RECHARGE'`, `direction=1`），`balance_after_usd` 作对账锚点。
+  `idem_key = "RECHARGE:<request_id>"` 走 UNIQUE 索引 → 同一 request_id 重复充值**只入账一次**。
+- 护栏：`MAX_RECHARGE_USD = 10000.0`（单笔上限）、金额必须 > 0。
+- 接口：`POST /api/v1/user/recharge`，body `{amount_usd, request_id?}`，返回 `{status, demo:true, amount_usd, balance_usd, duplicate}`。
 
 ---
 
@@ -306,6 +322,17 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 ---
 
 ### TODO-12 前端余额/面板不随推理实时刷新（**前端侧，但需后端配合**）
+
+> **状态：🟡 后端配合侧已完成（2026-11-08，批次 4）/ 前端仍需改动**
+> 后端已把「实时性」从"目前碰巧满足"变成**接口契约**：
+> 新增纯 ASGI `NoStoreMiddleware`，对 `/api/` 与 `/v1/` 的响应统一补
+> `Cache-Control: no-store, no-cache, must-revalidate`。
+> 刻意**不用** `BaseHTTPMiddleware`（它会把响应体包成 StreamingResponse 重放，
+> 破坏 SSE 逐块 flush → 前端"打字机卡住"）。
+> 排查结论：nginx `proxy_cache off` ✅、Cloudflare `cf-cache-status: DYNAMIC` ✅
+> —— 此前唯一缺口是 FastAPI **没有显式声明** Cache-Control，属于"靠默认值侥幸"。
+> **仍未做**：前端 `App.tsx` 的 `loadData()/loadUsage()` 仍只在 mount 时跑一次，
+> 需在 Playground 收到 `RESPONSE_DONE` 后主动刷新余额与面板（方案 B）。
 
 **现状**
 `App.tsx:83-87`：`loadData()` 与 `loadUsage()` **只在 mount 时调用一次**（依赖数组为 `[]`）。
@@ -383,10 +410,12 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-15 注册表垃圾数据清理与生命周期
 
-> **状态：🟡 部分完成（2026-11-08 批次 2）** —— 批次 2 让这些残留**默认不再出现**
-> （统一视图过滤掉「无身份、无产出、无心跳」的节点，21 条里 15 条 `probe_*` 被隐藏，
-> 数据原样保留，`GET /api/v1/nodes?include_hidden=1` 可查）。
-> **仍未做**：真正的物理清理（`retired_at` 字段、7 天自动退役、`manage_node.py prune`）。
+> **状态：✅ 物理清理已完成（2026-11-08，批次 4）** —— 后端 commit `d37a0ad`
+> 批次 2 让探针残留**默认不再出现**（统一视图过滤"无身份、无产出、无心跳"的节点）；
+> 批次 4 补上**物理删除**：`manage_node.py prune` 已上线并在生产执行，
+> 清掉 16 个长期离线无产出的 `probe_*` / `ws_rootcause_probe` 节点，
+> 注册表从 20 条降到 4 条（真节点全在）。
+> **仍未做**：`retired_at` 字段与 7 天**自动**退役（当前是手动 prune 触发）。
 
 **现状**
 `node_registry` 19 条里 16 条是调试探针残留（`probe_*` / `ws_rootcause_probe` / `123`），
@@ -396,6 +425,16 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 1. `node_registry` 增加 `retired_at`，心跳超期窗口（如 7 天）后自动标记退役并从默认列表隐藏
 2. `manage_node.py` 增加 `prune` / `retire` 命令，清理历史探针
 3. `GET /api/v1/nodes` 支持 `?include_retired=1` 供排查
+
+**落地实况（批次 4）**
+- `manage_node.py prune`：**默认仅预览**，加 `--apply` 才物理删除。
+  安全红线（命中任一条一律保留，只在预览里标注原因）：
+  `has_credential`（有凭证行）/ `has_output`（nodes_history 有产出）/
+  `recently_active`（心跳在 `--older-than-hours` 内，默认 24h）/
+  `prefix_not_allowed`（前缀不在白名单）。
+- 白名单前缀默认 `probe_` 与 `ws_rootcause_probe`（`--prefix` 可重复覆盖）。
+- 支撑函数在 `db.py`：`list_registry_nodes()` / `find_prunable_nodes()` / `delete_registry_nodes()`。
+- 生产实测：删除 16 个，保留 `123` / `node_default_001` / `node_gtx1060_001` / `node_user_002`。
 
 ---
 
