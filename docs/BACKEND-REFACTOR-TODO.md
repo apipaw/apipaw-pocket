@@ -9,6 +9,10 @@
 >
 > **进度更新（2026-11-08 晚）**：阶段三第一阶段已完成 **TODO-16 / 01 / 02 / 03**，
 > 生产后端已部署并验证（详见各节「状态」标注与 `docs/PHASE3-P0-REPORT.md`）。
+>
+> **进度更新（2026-11-08 夜）**：阶段三批次 2「数据模型统一与派单调度器重构」已完成
+> **TODO-04 / 05**（全量）、**TODO-06 / 13 / 14 / 15**（部分），
+> 详见 `docs/PHASE3-BATCH2-REPORT.md`。
 
 ---
 
@@ -122,6 +126,12 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-04 确立单一权威节点表，消除双库割裂
 
+> **状态：✅ 已完成（2026-11-08 批次 2）** —— 新增 `server._collect_node_view()`：
+> 注册表（身份/在线/通道）+ 统计表（tokens/收益/暂停位）+ 凭证表（归属钱包）
+> 合成一份统一视图；`owner/dashboard` 与 `GET /api/v1/nodes` 共用它，
+> 「在线 N / 登记 M」两个数字与列表内容同源同口径。
+> 验收：面板 `registered_nodes_total` = `/api/v1/nodes` 节点数 = 3。
+
 **现状**
 在线数来自 `node_registry`（19 条），节点列表来自 `nodes_history`（2 条），**两者永不相交**：
 - 只发心跳、没跑过推理的节点 → 不出现在业主面板
@@ -141,6 +151,12 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-05 节点心跳回写 nodes_history —— 消除「只有结算才有节点」
 
+> **状态：✅ 已完成（2026-11-08 批次 2）** —— `_touch_node()` 在注册表提交后回写
+> `nodes_history.last_seen`（复用 `smooth_upsert`，兼容 SQLite 3.7.17）。
+> 跨库无法原子提交，故独立提交 + **15s 节流** + 失败不抛异常，
+> 绝不让统计旁路去抢业务库写锁（2026-11-01 的 500 事故模式）。
+> 验收：生产实测心跳一次 → `last_seen` 实时刷新、面板 `alive=true`。
+
 **现状**
 `server.py:231 _touch_node()` **只写 registry**，不碰 `nodes_history`。
 `nodes_history` 的行只在 `record_usage` 结算时产生 → 新接入的节点在面板上是隐形的。
@@ -155,6 +171,15 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 ---
 
 ### TODO-06 节点归属钱包缺失 —— 「我的节点收益」无法成立
+
+> **状态：🟡 大部分完成（2026-11-08 批次 2）**
+> 已做：`node_credentials` 新增 `owner_wallet` / `owner_id`（ADD COLUMN 平滑补齐）；
+> `db.get_owner_nodes_revenue()` 按 owner_wallet 聚合 `total_earnings_paw` / tokens；
+> `owner/dashboard` 新增 `owner_wallet` 与 `my_nodes` 收益块；
+> `manage_node.py bind` 命令绑定/解绑归属。
+> 生产实测：`my_nodes.total_earnings_paw` = 142.41325 PAW（node_default_001）。
+> **未做**：独立收益接口 `GET /api/v1/owner/nodes/revenue` 与
+> `GET /api/v1/owner/nodes/{node_id}/revenue`（近 24h 增量时间序列）。
 
 **现状**
 `node_credentials`（db.py:1059）字段只有 `node_id / node_secret / status / created_at / updated_at / note`，
@@ -275,6 +300,15 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-13 `is_paused` 全链路失效 —— 「暂停接单」开关零效果
 
+> **状态：🟡 核心已修（2026-11-08 批次 2）**
+> 已做：`_select_dispatch_node()` 联合查询 `nodes_history.is_paused`，
+> **已暂停的节点一律不参与派单**（此前 is_paused 全代码库无人读取）；
+> `dispatch_inference()` 增加下发瞬间的二次校验（`error=node_paused`）；
+> 读取暂停位失败时 fail closed（宁可不派单，也不派给状态不明的节点）。
+> 验收：沙箱 T4/T7 + 生产实测（暂停后 `dispatch_eligible=false`）。
+> **未做**：「已连接时主动下发 PAUSE 帧或断开」—— 暂停目前只影响**后续选点**，
+> 已在途的请求仍会跑完。
+
 **现状（本次摸底最严重的功能性缺陷）**
 - `toggle_node_pause` 写入 `nodes_history.is_paused`
 - **`server.py` 里 `is_paused` 只出现 2 次，都在 toggle 端点内（769-770 行）**
@@ -296,6 +330,15 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-14 HTTP 心跳节点永远接不到派单
 
+> **状态：🟡 派单侧已修（2026-11-08 批次 2）**
+> 已做：选点必须同时满足「进程内有活 WS 连接」且「注册表确认最近有 **WS 心跳**」
+> ——判据用 `last_ws_heartbeat` 而非 `channel` 字段（后者会随最后一次心跳
+> 的通道在 http/websocket 之间翻转，会误杀真 WS 节点）；
+> 视图新增 `dispatchable` / `dispatch_eligible` 字段，
+> 把「alive 但永远收不到派单」的 HTTP 假在线节点显式暴露出来。
+> **未做**：HTTP 通道的「拉取式推理任务」（`/api/v1/node/tasks`）；
+> 多 worker 下 `connected_nodes` 进程内字典不共享（当前 `--workers 1` 掩盖了）。
+
 **现状**
 `connected_nodes` 是**进程内字典**（仅 WS 隧道节点），`_select_dispatch_node` 只从它选。
 而注册表里 `channel='http'` 的节点（`node_default_001`、`node_user_002`、`123`）
@@ -312,6 +355,11 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 ---
 
 ### TODO-15 注册表垃圾数据清理与生命周期
+
+> **状态：🟡 部分完成（2026-11-08 批次 2）** —— 批次 2 让这些残留**默认不再出现**
+> （统一视图过滤掉「无身份、无产出、无心跳」的节点，21 条里 15 条 `probe_*` 被隐藏，
+> 数据原样保留，`GET /api/v1/nodes?include_hidden=1` 可查）。
+> **仍未做**：真正的物理清理（`retired_at` 字段、7 天自动退役、`manage_node.py prune`）。
 
 **现状**
 `node_registry` 19 条里 16 条是调试探针残留（`probe_*` / `ws_rootcause_probe` / `123`），
