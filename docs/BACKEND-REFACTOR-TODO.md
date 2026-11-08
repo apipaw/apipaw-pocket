@@ -13,6 +13,12 @@
 > **进度更新（2026-11-08 夜）**：阶段三批次 2「数据模型统一与派单调度器重构」已完成
 > **TODO-04 / 05**（全量）、**TODO-06 / 13 / 14 / 15**（部分），
 > 详见 `docs/PHASE3-BATCH2-REPORT.md`。
+>
+> **进度更新（2026-11-08 夜 · 批次 3）**：阶段三批次 3「计费系统改造（方案 B：预扣—结算）」
+> 已完成 **TODO-08 / 09**（全量）、**TODO-11**（后端部分）。
+> 摸底审计见 `docs/PHASE3-BATCH3-BILLING-AUDIT.md`，实施验证见 `docs/PHASE3-BATCH3-REPORT.md`。
+> **TODO-10（充值接口）仍未做** —— 系统至今没有充值/退款/冲正接口，余额只减不增，
+> 是下一批次的头号任务。
 
 ---
 
@@ -215,6 +221,12 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-08 余额只有余额、没有账本
 
+> **状态：✅ 已完成（2026-11-08，批次 3）** —— 新增 `balance_ledger` 资金账本 +
+> `daily_spend` 原子表 + `users.balance_frozen_usd` 冻结列；预扣/结算与扣费同事务，
+> 账本净额恒等于 `users.balance_usd`。详见 `docs/PHASE3-BATCH3-REPORT.md`。
+> **注意**：本批次实现的是审计报告 §6.3 方案 B 的**双式记账**版
+> （`HOLD` 预扣 / `SETTLE` 结算 / `FAILED` 退回），字段比本文档原设想更完整。
+
 **现状**
 `users.balance_usd` 是**单个可变 REAL 列**，`record_usage` 直接
 `UPDATE users SET balance_usd = balance_usd - ?`。
@@ -231,6 +243,13 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 ---
 
 ### TODO-09 额度闸门存在并发击穿与负余额
+
+> **状态：✅ 已完成（2026-11-08，批次 3）** —— 采用审计报告 §6.3 **方案 B（预扣—结算）**：
+> 额度占用**提前到派单之前**（`reserve_usage_atomic`），扣款改为
+> `UPDATE ... WHERE balance_usd >= ?` 条件式 + rowcount 判定，单日限额改走
+> `daily_spend` 原子累加（`AND spent_usd + ? <= ?`），全程 `BEGIN IMMEDIATE` 写事务。
+> 实测：100 并发不透支（余额 0 绝不为负）、50 并发不击穿限额、40 并发生产压测余额 ≥ 0。
+> 详见 `docs/PHASE3-BATCH3-REPORT.md`。
 
 **现状**
 `server.py:967-981` 的校验是**事前**的：
@@ -269,12 +288,20 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 
 ### TODO-11 `get_spend_today` 的时间口径需明确并与 UI 对齐
 
+> **状态：🟡 后端已完成（2026-11-08，批次 3）/ 前端文案待对齐**
+> 后端口径已强制为 **UTC 自然日**（`db.utc_day_key`），与服务器 TZ 完全解耦；
+> `get_spend_today()` 改读 `daily_spend` 原子表。
+> **⚠️ 与本文档原设想（滚动 24 小时）不同** —— 批次 3 选择了 UTC 自然日，
+> 理由：滚动 24h 无法用「当日累计」原子表表达，且跨时区用户会看到「今日消费」忽高忽低。
+> **仍需前端把「今日消费」文案改成明确的自然日语义**（建议「今日消费（UTC 自然日）」），
+> 否则用户仍会与 `/api/v1/user/analytics?hours=24`（滚动 24h）产生口径混淆。
+
 **现状**
 `db.py:376 get_spend_today()` 的时间窗口实现需复核（自然日 or 滚动 24h）；
 而前端 UI 上写的是「今日消费」。滑块设的是「单日上限」，两个口径必须与 UI 文案严格一致，
 否则用户会看到「已用 $x 超过上限但请求没被拒」。
 
-**改造**：明确为**滚动 24 小时**（与 `/api/v1/user/analytics?hours=24` 同源），并在 UI 文案注明。
+**改造**：后端口径已定为 **UTC 自然日**（见上）。前端需在「今日消费」处标注自然日语义。
 
 ---
 
