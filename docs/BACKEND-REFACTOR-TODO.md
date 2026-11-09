@@ -23,6 +23,10 @@
 > 实施验证见 `docs/PHASE3-BATCH4-REPORT.md`。至此「余额只减不增」的历史问题闭环：
 > 系统首次拥有**资金进入**的唯一入口（`POST /api/v1/user/recharge`）。
 > 仍未做：真实支付通道（当前为演示充值）、退款/冲正接口。
+>
+> **进度更新（2026-11-09/10 · 阶段四）**：**P0 / P1 / P2 已全部上线生产**，
+> 详见文末「阶段四 · 账户与通行证系统（TODO-19 ~ TODO-24）」与 `docs/PHASE4-AUTH-TODO.md`。
+> 下一步 **P3 业主钱包签名登录**（自研密码学，需单开评审关口）。
 
 ---
 
@@ -494,6 +498,75 @@ SQLite ×2：apipaw.db（业务库）/ node_registry.db（节点注册表库）
 ```
 
 > **建议先做 TODO-16（git 基线）**再动任何代码 —— 当前 1412 行未提交改动没有任何回滚保护。
+
+---
+
+## 阶段四 · 账户与通行证系统（TODO-19 ~ TODO-24）
+
+> 阶段四的设计蓝图见 `docs/PHASE4-AUTH-TODO.md`（12 章，含 12 条决策 D1–D12 与 5 个洞 H1–H5）。
+> 本节只做**清单索引**，详细设计不在此重复。
+
+**进度更新（2026-11-09/10）**：阶段四 **P0 / P1 / P2 已全部上线生产**
+（cloud `28cbd31` → `ad5660e` → `64a2e6a`；pocket `7019e0f` → `f2dc862`）。
+下一步是 **P3 业主钱包签名登录**（自研密码学，需单开评审关口）。
+
+### TODO-19 密钥明文长期驻留 `users.api_key`
+
+**现状**：`users.api_key` 是 `NOT NULL UNIQUE` 的明文列，签发一把 Key 就往库里多留一条明文秘密。
+
+**改造**：
+- P2 已做：新建账户改存**非秘密占位符** `account_handle`（该列有约束，放宽要重建表，SQLite 3.7.17 无 ALTER 改约束）；
+  存量 `paw_demo_key` 的明文**未动**。
+- P5（M6）待做：作废历史明文 Key、清空存量明文，`grep -R "paw_demo_key"` 生产代码 **0 命中**。
+
+**状态**：🟡 部分完成（P2 新账户已无明文；存量待 P5）
+
+### TODO-20 签发台限流把 Cloudflare 边缘 IP 当成客户端 IP
+
+**现状**（2026-11-09 实测）：网关在 CF 之后，nginx 配 `X-Real-IP $remote_addr`，取到的是 **CF 边缘 IP**
+（`auth_rate_limits.ident=104.22.193.28`，而真实客户端在 `CF-Connecting-IP` 里），
+「每 IP 5 把/小时」退化成「每 CF 边缘 5 把/小时」——公开自助签发台等于不可用，且攻击者可分散请求绕限。
+
+**改造**：纯 Python 识别 CF 网段（`ipaddress` 标准库，**零新生产依赖**、**不动 nginx**）；
+对端在 CF 网段才采信 `CF-Connecting-IP`（CF 覆盖客户端同名头，不可伪造），直连源站照旧用 `X-Real-IP`。
+
+**状态**：✅ 已完成（cloud `64a2e6a`，生产实测 `ident` 已是真实客户端 IPv6）
+
+### TODO-21 买家侧没有自助签发入口
+
+**现状**：`POST /api/v1/auth/apikey` 只存在于后端，前端没有任何入口；没有密钥的新用户只能手工找 Key。
+
+**改造**：Pocket「设置 API Key」弹窗内新增 `KeyIssuePanel`（自助签发台）——
+签发 → 一次性明文展示（警示 + 复制）→ 勾选「我已保存」→ 写入 localStorage；
+余额恒为 $0 需先充值、限流 429 给出明确的下一步动作，公开页**不放充值按钮**。
+
+**状态**：✅ 已完成（pocket `f2dc862`，线上双域名 `live-console` 24/24、`design-check` 33/33）
+
+### TODO-22 账户句柄化迁移（M2–M5）
+
+**现状**：`usage_logs` / `balance_ledger` / `daily_spend` 用明文 Key 当引用值；`api_keys` 影子行缺失。
+
+**改造**：新增 `users.account_handle` 与 `api_keys` 影子行（只存 sha256），三表引用值句柄化，
+`resolve_account_handle()` 统一化并保留**明文双读回落**（保证存量 Key 不失效）。
+
+**状态**：✅ 已完成（cloud `ad5660e`；生产账实相符 NET == BAL）
+
+### TODO-23 业主钱包签名登录（缺 EIP-4361 风格签名链路）
+
+**现状**：业主身份靠 `paw_demo_key` 这把共享密钥，谁拿到谁就是业主。
+
+**改造**：`keccak256` + `secp256k1` 纯 Python 自研（**零依赖**，需公开向量交叉验证）、
+nonce/verify 端点、HS256 会话签发与撤销、`GET /api/v1/owner/nodes/revenue` 只返回本人节点收益。
+
+**状态**：⬜ 待做（P3，**需单开评审关口**：自研密码学必须与 `eth-account` 生成向量逐字节比对后方可上线）
+
+### TODO-24 `paw_demo_key` 硬编码与前端硬编码依赖
+
+**现状**：`DEMO_API_KEY` 常量、e2e 脚本与文档里到处是 `paw_demo_key`。
+
+**改造**：P5 随 M6 一并清除（作废历史 Key 属于**用户感知变更**，需提前沟通）。
+
+**状态**：⬜ 待做（P5）
 
 ---
 
