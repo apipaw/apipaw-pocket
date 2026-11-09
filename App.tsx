@@ -24,6 +24,7 @@ import AnalyticsCard from './src/components/AnalyticsCard';
 import ModelStudioCard from './src/components/ModelStudioCard';
 import PipelineMeshCard from './src/components/PipelineMeshCard';
 import RoyaltyCard from './src/components/RoyaltyCard';
+import KeyIssuePanel from './src/components/KeyIssuePanel';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
 import { colors, fontSize, radius, spacing } from './src/theme';
 import { injectWebTheme } from './src/ui/webTheme';
@@ -118,6 +119,18 @@ export default function App() {
   const handleClearKey = () => {
     setApiKey('');
     setKeyInput('');
+  };
+
+  /**
+   * 签发台签出新 Key 且用户确认已保存后 —— 写入 localStorage、关弹窗、立刻重拉面板。
+   * 明文只在签发那一刻返回一次, 之后库里只有哈希, 丢了只能重新签发。
+   */
+  const handleAdoptIssuedKey = (issued: string) => {
+    setApiKey(issued);
+    setKeyInput(issued);
+    setKeyModalVisible(false);
+    loadData();
+    loadUsage();
   };
 
   const openKeyModal = () => {
@@ -386,6 +399,7 @@ export default function App() {
             <Text style={styles.modalHint}>
               密钥将保存在本机浏览器 (localStorage)，仅用于向云端网关 https://cloud.apipaw.com 发起请求
             </Text>
+            <KeyIssuePanel onAdopt={handleAdoptIssuedKey} />
             <TextInput
               style={styles.modalInput}
               value={keyInput}

@@ -81,6 +81,7 @@ export const describeCloudError = (e: unknown): string => {
   if (status === 401) return 'API Key 无效或未设置，请点击右上角「设置密钥」填入有效密钥';
   if (status === 403) return '当前账号未绑定创作者钱包，无法访问创作者接口';
   if (status === 404) return '云端网关接口不存在，请确认后端版本';
+  if (status === 429) return '请求过于频繁，请稍后再试';
   if (status && status >= 500) return `云端网关异常 (HTTP ${status})，请稍后重试`;
   if (err?.code === 'ECONNABORTED') return '请求超时，云端聚合耗时较长，请稍后重试';
   if (!status && err?.code === 'ERR_NETWORK') return '网络不可达，请检查到 cloud.apipaw.com 的连接';
@@ -318,6 +319,33 @@ export interface RegisterCreatorModelPayload {
   completion_price_per_1k?: number;
   description?: string;
 }
+
+// ----------------- 买家签发台 (阶段四 P2) -----------------
+
+/**
+ * 自助签发一把新 API Key 的返回体。
+ *
+ * 后端约束（阶段四 P0/P1/P2, 全部是**契约**, 不是实现细节）:
+ *   - 端点**不接受任何请求体** —— 初始余额由服务端写死 $0, 客户端无从指定额度;
+ *   - 按**真实客户端 IP** 限流 5 把/小时, 超限返回 429;
+ *   - **明文只在这一刻返回一次** —— 服务端只存 sha256 哈希, 之后无法再取回。
+ */
+export interface IssuedApiKey {
+  status: string;
+  api_key: string;
+  balance_usd: number;
+  account_handle: string;
+  key_prefix: string;
+  key_last4: string;
+  role: string;
+  daily_limit_usd: number;
+}
+
+/** 买家自助签发新 Key —— 明文仅此一次返回 */
+export const issueApiKey = async (): Promise<IssuedApiKey> => {
+  const res = await cloudApi.post('/api/v1/auth/apikey');
+  return res.data;
+};
 
 // ----------------- 买家 API -----------------
 
