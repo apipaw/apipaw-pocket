@@ -351,8 +351,15 @@ Issued At: 2026-11-09T02:14:33Z
 **(a) 签名语义**：`personal_sign` = EIP-191 `0x45` 版本：
 
 ```
-digest = keccak256(b"\x19Ethereum Signed Message:\n" + len(message_bytes).to_bytes(1,'big') + message_bytes)
+digest = keccak256(b"\x19Ethereum Signed Message:\n" + str(len(message_bytes)).encode("ascii") + message_bytes)
 ```
+
+> 🔧 **2026-11-10 修正（本条原文有误，勿照抄）**：前缀里的长度是**十进制 ASCII 串**
+> （如 `"\x19Ethereum Signed Message:\n256"`），**不是**单字节长度前缀。
+> 这是 ethers / ethereumjs / MetaMask 的真实行为，已由 ethers@6 + @noble/curves +
+> pycryptodome + coincurve 四方独立实现交叉验证确认（见 Cloud 仓库
+> `docs/P3-CRYPTO-CROSSCHECK.md`）。若按原写法（单字节前缀），**所有长度 ≥ 10 的消息
+> 摘要都会算错**，钱包签名登录将直接失效。
 
 **(b) 需要两个纯 Python 原语**：
 
