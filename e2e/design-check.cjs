@@ -18,7 +18,15 @@ const { chromium } = require('playwright');
 
 const DIST = path.join(__dirname, '..', 'dist');
 const SHOT_DIR = path.join(__dirname, 'shots');
-const API_KEY = process.env.APIPAW_API_KEY || 'paw_demo_key';
+/**
+ * 测试凭证**只从环境变量读**——仓库里不再留任何硬编码 Key。
+ * 跑法：APIPAW_API_KEY=<你的测试 key> node e2e/design-check.cjs [url]
+ */
+const API_KEY = process.env.APIPAW_API_KEY;
+if (!API_KEY) {
+  console.error('缺少环境变量 APIPAW_API_KEY —— 仓库内不再内置默认 Key，请显式传入。');
+  process.exit(2);
+}
 // 可选：直接对已启动的地址做验收（开发服务器 / 线上站点），跳过本地静态服务器
 const EXTERNAL_URL = process.argv[2] || '';
 

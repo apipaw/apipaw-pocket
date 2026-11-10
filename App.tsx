@@ -12,12 +12,14 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { HostTab, usePawStore } from './src/store/usePawStore';
+import { HostTab, hydrateSession, usePawStore } from './src/store/usePawStore';
 import {
   fetchOwnerDashboard,
+  fetchOwnerRevenue,
   fetchUserUsage,
   toggleNodeStatus,
   OwnerDashboard,
+  OwnerRevenue,
 } from './src/api/cloudClient';
 import PlaygroundCard from './src/components/PlaygroundCard';
 import AnalyticsCard from './src/components/AnalyticsCard';
@@ -25,6 +27,7 @@ import ModelStudioCard from './src/components/ModelStudioCard';
 import PipelineMeshCard from './src/components/PipelineMeshCard';
 import RoyaltyCard from './src/components/RoyaltyCard';
 import KeyIssuePanel from './src/components/KeyIssuePanel';
+import WalletPanel from './src/components/WalletPanel';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
 import { colors, fontSize, radius, spacing } from './src/theme';
 import { injectWebTheme } from './src/ui/webTheme';
@@ -54,13 +57,18 @@ export default function App() {
     spentTodayUsd,
     hostTab,
     setHostTab,
+    sessionToken,
+    sessionWallet,
+    sessionRole,
   } = usePawStore();
   const { width } = useWindowDimensions();
   const wide = width >= WIDE_BREAKPOINT;
 
   const [dashboard, setDashboard] = useState<OwnerDashboard | null>(null);
+  const [revenue, setRevenue] = useState<OwnerRevenue | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [keyModalVisible, setKeyModalVisible] = useState(false);
+  const [walletModalVisible, setWalletModalVisible] = useState(false);
   const [keyInput, setKeyInput] = useState(apiKey);
 
   const loadData = async () => {
@@ -82,9 +90,30 @@ export default function App() {
     }
   };
 
+  /**
+   * 拉取**本人**节点收益 —— 走钱包会话 JWT（阶段四 P3 新端点）。
+   * 没有会话时不发请求（后端会 401，UI 改为提示连接钱包）。
+   */
+  const loadRevenue = async () => {
+    if (!usePawStore.getState().sessionToken) {
+      setRevenue(null);
+      return;
+    }
+    try {
+      setRevenue(await fetchOwnerRevenue());
+    } catch (e) {
+      console.log('加载本人节点收益失败:', e);
+      setRevenue(null);
+    }
+  };
+
   useEffect(() => {
-    loadData();
-    loadUsage();
+    // 先恢复会话（原生端从 Keychain 读 JWT），再拉数据
+    hydrateSession().then(() => {
+      loadData();
+      loadUsage();
+      loadRevenue();
+    });
     // 首次访问没有可用密钥 —— 直接弹出设置框，避免首屏全是 401
     if (!apiKey) setKeyModalVisible(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,6 +128,7 @@ export default function App() {
     setRefreshing(true);
     await loadData();
     await loadUsage();
+    await loadRevenue();
     setRefreshing(false);
   };
 
@@ -160,6 +190,26 @@ export default function App() {
         </View>
 
         <View style={styles.headerActions}>
+          {/* 钱包会话入口（阶段四 P4）—— 业主身份走钱包签名，买家走右侧的 API Key */}
+          <TouchableOpacity
+            style={styles.walletBtn}
+            id="apx-glow-wallet"
+            onPress={() => setWalletModalVisible(true)}
+            activeOpacity={0.8}
+            testID="open-wallet-modal"
+          >
+            <StatusDot
+              variant={sessionToken ? 'live' : 'static'}
+              color={sessionToken ? colors.accent : colors.cyan}
+              size={7}
+            />
+            <Text style={styles.walletBtnText} testID="wallet-chip">
+              {sessionToken
+                ? `${sessionWallet.slice(0, 6)}…${sessionWallet.slice(-4)}`
+                : '连接钱包'}
+            </Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.keyBtn}
             id="apx-glow-key"
@@ -191,7 +241,7 @@ export default function App() {
 
       {/* ---------------- 右上角 Toast（替代通栏警告条）---------------- */}
       <Toast
-        visible={!apiKey}
+        visible={!apiKey && !sessionToken}
         tone="warn"
         title="尚未配置 API 凭证"
         message="点击右上角按钮填入 Key，即可连接云端网关拉取余额、节点与用量数据。"
@@ -329,6 +379,60 @@ export default function App() {
                   </Surface>
                 </View>
 
+                {/* 本人节点收益 —— 只认钱包会话（阶段四 P3/P4）*/}
+                <Surface webId="apx-glass-my-nodes" style={styles.myNodesCard} testID="my-nodes-card">
+                  <View style={styles.myNodesHead}>
+                    <Text style={styles.eyebrow}>我的节点收益（钱包会话口径）</Text>
+                    {sessionRole === 'OWNER' ? (
+                      <Text style={styles.myNodesOwner}>OWNER</Text>
+                    ) : null}
+                  </View>
+                  {!sessionToken ? (
+                    <Text style={styles.myNodesHint}>
+                      连接钱包后，这里只显示**你名下**的节点与收益（服务端按登录钱包过滤）。
+                    </Text>
+                  ) : !revenue ? (
+                    <Text style={styles.myNodesHint}>
+                      正在读取本人节点…（若长时间无数据，请确认该钱包在节点注册表里有归属）
+                    </Text>
+                  ) : revenue.nodes_total === 0 ? (
+                    <Text style={styles.myNodesHint}>
+                      该钱包名下暂无节点。节点归属写入注册表后，这里会立即出现。
+                    </Text>
+                  ) : (
+                    <>
+                      <View style={styles.myNodesStatRow}>
+                        <View style={styles.myNodesStat}>
+                          <Text style={styles.myNodesValue}>{revenue.nodes_total}</Text>
+                          <Text style={styles.myNodesLabel}>名下节点（台）</Text>
+                        </View>
+                        <View style={styles.myNodesStat}>
+                          <Text style={styles.myNodesValue}>
+                            {revenue.total_earnings_paw.toFixed(4)}
+                          </Text>
+                          <Text style={styles.myNodesLabel}>累计收益（PAW）</Text>
+                        </View>
+                        <View style={styles.myNodesStat}>
+                          <Text style={styles.myNodesValue}>
+                            {revenue.total_tokens_processed.toLocaleString()}
+                          </Text>
+                          <Text style={styles.myNodesLabel}>累计 Token</Text>
+                        </View>
+                      </View>
+                      {revenue.nodes.map((node) => (
+                        <View key={node.node_id} style={styles.myNodeRow}>
+                          <Text style={styles.myNodeId}>{node.node_id}</Text>
+                          <Text style={styles.myNodeMeta}>
+                            {node.total_tokens_processed.toLocaleString()} tokens ·{' '}
+                            {node.total_earnings_paw.toFixed(4)} PAW
+                            {node.is_paused ? ' · 已暂停' : ''}
+                          </Text>
+                        </View>
+                      ))}
+                    </>
+                  )}
+                </Surface>
+
                 {(dashboard?.nodes ?? []).map((node) => (
                   <View
                     key={node.node_id}
@@ -385,6 +489,38 @@ export default function App() {
           </View>
         )}
       </ScrollView>
+
+      {/* ---------------- 钱包会话弹窗（阶段四 P4）---------------- */}
+      <Modal
+        visible={walletModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setWalletModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop} id="apx-modal">
+          <View style={styles.modalCard} id="apx-modal-card">
+            <Text style={styles.modalTitle}>钱包登录</Text>
+            <Text style={styles.modalHint}>
+              钱包私钥始终留在你的设备里，APIPaw 只拿到「签名者地址」与一份 2 小时有效的会话令牌。
+            </Text>
+            <WalletPanel
+              onConnected={() => {
+                loadRevenue();
+                loadData();
+              }}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnGhost]}
+                onPress={() => setWalletModalVisible(false)}
+                testID="wallet-modal-close"
+              >
+                <Text style={styles.modalBtnGhostText}>关闭</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* ---------------- API Key 弹窗 ---------------- */}
       <Modal
@@ -493,6 +629,18 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   keyBtnText: { color: colors.textBody, fontSize: fontSize.sm, fontWeight: '700' },
+  walletBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.cyanSoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 211, 238, 0.35)',
+  },
+  walletBtnText: { color: colors.cyan, fontSize: fontSize.sm, fontWeight: '700' },
   roleBtn: {
     backgroundColor: colors.purpleSoft,
     borderRadius: radius.pill,
@@ -567,6 +715,30 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
+
+  myNodesCard: { gap: spacing.md },
+  myNodesHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  myNodesOwner: {
+    color: colors.accent,
+    fontSize: fontSize.xs,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  myNodesHint: { color: colors.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
+  myNodesStatRow: { flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' },
+  myNodesStat: { gap: 4 },
+  myNodesValue: { color: colors.accent, fontSize: fontSize.xl, fontWeight: '800' },
+  myNodesLabel: { color: colors.textSecondary, fontSize: fontSize.xs },
+  myNodeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+    paddingTop: spacing.sm,
+  },
+  myNodeId: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '800' },
+  myNodeMeta: { color: colors.textSecondary, fontSize: fontSize.sm },
   nodeHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   nodeHeadLeft: { flex: 1, gap: 4 },
   nodeIdText: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800' },

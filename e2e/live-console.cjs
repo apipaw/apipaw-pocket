@@ -23,7 +23,15 @@ const fs = require('fs');
 const { chromium } = require('playwright');
 
 const BASE_URL = process.argv[2] || 'https://console.apipaw.com';
-const API_KEY = process.env.APIPAW_API_KEY || 'paw_demo_key';
+/**
+ * 测试凭证**只从环境变量读**——仓库里不再留任何硬编码 Key。
+ * 跑法：APIPAW_API_KEY=<你的测试 key> node e2e/live-console.cjs [baseURL]
+ */
+const API_KEY = process.env.APIPAW_API_KEY;
+if (!API_KEY) {
+  console.error('缺少环境变量 APIPAW_API_KEY —— 仓库内不再内置默认 Key，请显式传入。');
+  process.exit(2);
+}
 const SHOT_DIR = path.join(__dirname, 'shots');
 const REPORT = path.join(__dirname, 'report.json');
 

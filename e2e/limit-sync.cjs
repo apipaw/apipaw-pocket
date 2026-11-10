@@ -16,7 +16,15 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const DIST = path.join(__dirname, '..', 'dist');
-const API_KEY = 'paw_demo_key';
+/**
+ * 测试凭证**只从环境变量读**——仓库里不再留任何硬编码 Key。
+ * 跑法：APIPAW_API_KEY=<你的测试 key> node e2e/limit-sync.cjs
+ */
+const API_KEY = process.env.APIPAW_API_KEY;
+if (!API_KEY) {
+  console.error('缺少环境变量 APIPAW_API_KEY —— 仓库内不再内置默认 Key，请显式传入。');
+  process.exit(2);
+}
 const SERVER_LIMIT = 137.5; // 刻意用非 10 整倍数的值，验证不被取整也不被回写
 
 const MIME = {

@@ -32,6 +32,7 @@ yarn-error.*
 
 # local env files
 .env*.local
+.env
 
 # typescript
 *.tsbuildinfo
@@ -43,4 +44,5 @@ yarn-error.*
 # e2e 产物
 e2e/report.json
 e2e/design-report.json
+e2e/wallet-report.json
 e2e/shots/

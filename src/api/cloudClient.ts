@@ -27,11 +27,26 @@ export const cloudApi = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// 统一注入买家 API Key（后续所有请求自动带上 Authorization 头）
+/**
+ * 只接受**钱包会话 JWT** 的端点（阶段四 P3 新增的业主收益端点）。
+ *
+ * 其余端点继续走 API Key —— 这是阶段四「双通道鉴权：同一个 Authorization 头，
+ * 两种凭证」的设计：钱包会话只服务于**钱包身份**那条链路，
+ * 不去冒充买家的 API Key 去做推理计费。
+ */
+const JWT_ONLY_PATHS = ['/api/v1/owner/nodes/revenue'];
+
+const isSessionPath = (url: string | undefined): boolean => {
+  if (!url) return false;
+  return JWT_ONLY_PATHS.some((p) => url.includes(p));
+};
+
+// 统一注入凭证：会话端点用 JWT，其余端点用买家 API Key
 cloudApi.interceptors.request.use((config) => {
-  const apiKey = usePawStore.getState().apiKey;
-  if (apiKey) {
-    config.headers.Authorization = `Bearer ${apiKey}`;
+  const { apiKey, sessionToken } = usePawStore.getState();
+  const credential = isSessionPath(config.url) ? sessionToken : apiKey;
+  if (credential) {
+    config.headers.Authorization = `Bearer ${credential}`;
   }
   return config;
 });
@@ -57,6 +72,12 @@ cloudApi.interceptors.response.use(
     const isServerError = !!status && status >= 500;
     const retried = config.__apipawRetry || 0;
 
+    // 钱包会话失效（401）—— 服务端已撤销 / 令牌过期 / 密钥轮换。
+    // 这里立刻清掉本地会话，让 UI 提示「需重新签名」，而不是继续拿着废令牌重试。
+    if (status === 401 && isSessionPath(config.url) && usePawStore.getState().sessionToken) {
+      usePawStore.getState().clearSession();
+    }
+
     if (method !== 'get' || (!isNetworkError && !isServerError) || retried >= MAX_GET_RETRIES) {
       return Promise.reject(error);
     }
@@ -71,14 +92,18 @@ cloudApi.interceptors.response.use(
  * 把 axios 异常翻译成看板可直接展示的中文提示。
  * 401 是上云后最常见的失败原因（密钥缺失/失效），必须给出可操作指引。
  */
-export const describeCloudError = (e: unknown): string => {
+export const describeCloudError = (e: unknown, mode: 'key' | 'session' = 'key'): string => {
   const err = e as {
     response?: { status?: number; data?: { detail?: string } };
     message?: string;
     code?: string;
   };
   const status = err?.response?.status;
-  if (status === 401) return 'API Key 无效或未设置，请点击右上角「设置密钥」填入有效密钥';
+  if (status === 401) {
+    return mode === 'session'
+      ? '钱包会话已失效，请重新连接钱包并签名'
+      : 'API Key 无效或未设置，请点击右上角「设置密钥」填入有效密钥';
+  }
   if (status === 403) return '当前账号未绑定创作者钱包，无法访问创作者接口';
   if (status === 404) return '云端网关接口不存在，请确认后端版本';
   if (status === 429) return '请求过于频繁，请稍后再试';
@@ -178,6 +203,27 @@ export interface AnalyticsResponse {
 export interface OwnerDashboard {
   active_nodes_online: number;
   registered_nodes_total: number;
+  nodes: Array<{
+    node_id: string;
+    total_tokens_processed: number;
+    total_earnings_paw: number;
+    is_paused: number;
+    last_seen: number;
+  }>;
+}
+
+/**
+ * 业主钱包的**本人节点收益**（阶段四 P3 新端点）。
+ *
+ * 与 `fetchOwnerDashboard()` 的区别是**权限口径**：
+ *   - dashboard 走 API Key，看的是**全网**节点概览；
+ *   - revenue 走钱包会话 JWT，服务端按登录钱包过滤，**只返回本人名下节点**。
+ */
+export interface OwnerRevenue {
+  owner_wallet: string;
+  nodes_total: number;
+  total_earnings_paw: number;
+  total_tokens_processed: number;
   nodes: Array<{
     node_id: string;
     total_tokens_processed: number;
@@ -374,6 +420,16 @@ export const updateDailyLimit = async (
 
 export const fetchOwnerDashboard = async (): Promise<OwnerDashboard> => {
   const res = await cloudApi.get('/api/v1/owner/dashboard');
+  return res.data;
+};
+
+/**
+ * 拉取**本人**节点收益 —— 只认钱包会话 JWT（拦截器会自动注入）。
+ *
+ * 没有会话时后端返回 401，调用方据此提示「请先连接钱包」。
+ */
+export const fetchOwnerRevenue = async (): Promise<OwnerRevenue> => {
+  const res = await cloudApi.get('/api/v1/owner/nodes/revenue');
   return res.data;
 };
 
