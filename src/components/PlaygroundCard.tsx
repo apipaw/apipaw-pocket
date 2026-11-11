@@ -21,6 +21,7 @@ import {
   streamChat,
 } from '../api/cloudClient';
 import { colors, fontSize, radius, spacing } from '../theme';
+import Slider from './Slider';
 
 // ----------------- 类型 -----------------
 
@@ -31,6 +32,11 @@ export interface RunStats {
   cgas: number;
   promptTokens: number;
   completionTokens: number;
+  /** 阶段五 P0 · 费用拆解（后端 usage 载荷已下发，前端此前没接） */
+  baseComputeUsd: number;
+  nodeEarnUsd: number;
+  creatorRoyaltyUsd: number;
+  platformFeeUsd: number;
 }
 
 export interface ChatMessageItem {
@@ -143,20 +149,37 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({ text, live, elapsedMs, on
 
 const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
   <View style={styles.statsBar}>
-    <View style={styles.statItem}>
-      <Text style={styles.statLabel}>首字延迟 TTFT</Text>
-      <Text style={styles.statValue}>{formatMs(stats.ttftMs)}</Text>
+    <View style={styles.statRow}>
+      <View style={styles.statItem}>
+        <Text style={styles.statLabel}>首字延迟 TTFT</Text>
+        <Text style={styles.statValue}>{formatMs(stats.ttftMs)}</Text>
+      </View>
+      <View style={styles.statDivider} />
+      <View style={styles.statItem}>
+        <Text style={styles.statLabel}>吐字速度</Text>
+        <Text style={styles.statValue}>{stats.tokensPerSec.toFixed(1)} tok/s</Text>
+      </View>
+      <View style={styles.statDivider} />
+      <View style={styles.statItem}>
+        <Text style={styles.statLabel}>本次花费</Text>
+        <Text style={[styles.statValue, styles.statValueAccent]}>
+          ${stats.costUsd.toFixed(4)} / {stats.cgas.toFixed(1)} CGas
+        </Text>
+      </View>
     </View>
-    <View style={styles.statDivider} />
-    <View style={styles.statItem}>
-      <Text style={styles.statLabel}>吐字速度</Text>
-      <Text style={styles.statValue}>{stats.tokensPerSec.toFixed(1)} tok/s</Text>
-    </View>
-    <View style={styles.statDivider} />
-    <View style={styles.statItem}>
-      <Text style={styles.statLabel}>本次花费</Text>
-      <Text style={[styles.statValue, styles.statValueAccent]}>
-        ${stats.costUsd.toFixed(4)} / {stats.cgas.toFixed(1)} CGas
+
+    {/* 阶段五 P0 · 费用拆解：算力费 / 创作者版税 / 平台管理费
+        （口径来自后端 usage 载荷；场景 A 无创作者版税，场景 B 才有） */}
+    <View style={styles.breakdownRow} testID="playground-cost-breakdown">
+      <Text style={styles.breakdownTitle}>费用拆解</Text>
+      <Text style={styles.breakdownItem} testID="playground-cost-compute">
+        算力费 ${stats.baseComputeUsd.toFixed(6)}
+      </Text>
+      <Text style={styles.breakdownItem} testID="playground-cost-royalty">
+        创作者版税 ${stats.creatorRoyaltyUsd.toFixed(6)}
+      </Text>
+      <Text style={styles.breakdownItem} testID="playground-cost-platform">
+        平台管理费 ${stats.platformFeeUsd.toFixed(6)}
       </Text>
     </View>
   </View>
@@ -180,13 +203,31 @@ const PlaygroundCard: React.FC = () => {
   const [streaming, setStreaming] = useState(false);
   const [, setTick] = useState(0);
 
+  // ----------------- 阶段五 P0 · 参数面板 -----------------
+  // 此前 Playground 只能改模型，采样参数一概不可调 —— 即便调了也不会生效
+  // （后端既不接收 top_p，也从不下发任何采样参数）。
+  const [paramsOpen, setParamsOpen] = useState(false);
+  const [temperature, setTemperature] = useState(0.7);
+  const [topP, setTopP] = useState(0.9);
+  const [maxTokens, setMaxTokens] = useState(1024);
+  const [systemPrompt, setSystemPrompt] = useState('');
+
   const streamRef = useRef<StreamChatHandle | null>(null);
   const runRef = useRef({
     startedAt: 0,
     firstTokenAt: 0,
     reasoningStartedAt: 0,
     contentChars: 0,
-    usage: null as { completion_tokens: number; prompt_tokens: number; cost_usd: number; cgas: number } | null,
+    usage: null as {
+      completion_tokens: number;
+      prompt_tokens: number;
+      cost_usd: number;
+      cgas: number;
+      base_compute_usd?: number;
+      node_earn_usd?: number;
+      creator_royalty_usd?: number;
+      platform_fee_usd?: number;
+    } | null,
   });
 
   // 加载模型目录
@@ -244,8 +285,24 @@ const PlaygroundCard: React.FC = () => {
 
   const codeSnippets = useMemo(() => {
     const model = selectedModelId;
+    // 阶段五 P0：导出代码必须与界面上的实际参数一致，否则用户复制出去就跑偏
+    const system = systemPrompt.trim();
+    const exportMessages = system
+      ? [
+          { role: 'system', content: system },
+          { role: 'user', content: lastPrompt },
+        ]
+      : [{ role: 'user', content: lastPrompt }];
+
     const payload = JSON.stringify(
-      { model, messages: [{ role: 'user', content: lastPrompt }], stream: true },
+      {
+        model,
+        messages: exportMessages,
+        stream: true,
+        temperature,
+        top_p: topP,
+        max_tokens: maxTokens,
+      },
       null,
       2,
     );
@@ -265,8 +322,11 @@ client = OpenAI(
 
 stream = client.chat.completions.create(
     model="${model}",
-    messages=[{"role": "user", "content": "${lastPrompt.replace(/"/g, '\\"')}"}],
+    messages=${JSON.stringify(exportMessages, null, 4).replace(/\n/g, '\n    ')},
     stream=True,
+    temperature=${temperature},
+    top_p=${topP},
+    max_tokens=${maxTokens},
 )
 
 for chunk in stream:
@@ -286,8 +346,11 @@ const client = new OpenAI({
 
 const stream = await client.chat.completions.create({
   model: "${model}",
-  messages: [{ role: "user", content: ${JSON.stringify(lastPrompt)} }],
+  messages: ${JSON.stringify(exportMessages, null, 2).replace(/\n/g, '\n  ')},
   stream: true,
+  temperature: ${temperature},
+  top_p: ${topP},
+  max_tokens: ${maxTokens},
 });
 
 for await (const chunk of stream) {
@@ -297,7 +360,7 @@ for await (const chunk of stream) {
 }`;
 
     return { curl, python, javascript } as Record<ExporterTab, string>;
-  }, [selectedModelId, lastPrompt]);
+  }, [selectedModelId, lastPrompt, temperature, topP, maxTokens, systemPrompt]);
 
   const handleCopy = useCallback(async () => {
     const ok = await copyToClipboard(codeSnippets[exporterTab]);
@@ -330,6 +393,15 @@ for await (const chunk of stream) {
                 cgas: run.usage?.cgas ?? 0,
                 promptTokens: run.usage?.prompt_tokens ?? 0,
                 completionTokens,
+                // 费用拆解：后端直接下发算力基价；老网关没这个字段时用「实付 - 版税」反推
+                baseComputeUsd:
+                  run.usage?.base_compute_usd ??
+                  (run.usage
+                    ? Math.max(0, run.usage.cost_usd - (run.usage.creator_royalty_usd ?? 0))
+                    : 0),
+                nodeEarnUsd: run.usage?.node_earn_usd ?? 0,
+                creatorRoyaltyUsd: run.usage?.creator_royalty_usd ?? 0,
+                platformFeeUsd: run.usage?.platform_fee_usd ?? 0,
               },
             }
           : m,
@@ -367,6 +439,11 @@ for await (const chunk of stream) {
     const handle = streamChat({
       model: selectedModelId,
       messages: [...history, { role: 'user', content: text }],
+      // 阶段五 P0：采样参数 + 系统提示词真正下发到网关
+      temperature,
+      topP,
+      maxTokens,
+      systemPrompt,
       onReasoning: (delta) => {
         const run = runRef.current;
         if (!run.firstTokenAt) run.firstTokenAt = Date.now();
@@ -407,7 +484,7 @@ for await (const chunk of stream) {
     });
 
     streamRef.current = handle;
-  }, [input, messages, streaming, selectedModelId]);
+  }, [input, messages, streaming, selectedModelId, temperature, topP, maxTokens, systemPrompt]);
 
   const handleStop = () => {
     streamRef.current?.abort();
@@ -474,6 +551,83 @@ for await (const chunk of stream) {
           {activeModel.description} · 输入 ${activeModel.pricing.prompt_per_1k_usd}/1K ·
           输出 ${activeModel.pricing.completion_per_1k_usd}/1K · 上下文 {activeModel.context_window}
         </Text>
+      )}
+
+      {/* 阶段五 P0 · 采样参数面板
+          此前 Playground 只能选模型，采样参数一概不可调 —— 即便调了也不会生效
+          （后端既不接收 top_p，也从不下发任何采样参数）。 */}
+      <View style={styles.paramsBar}>
+        <TouchableOpacity
+          style={styles.paramsToggle}
+          onPress={() => setParamsOpen((v) => !v)}
+          activeOpacity={0.75}
+          testID="playground-params-toggle"
+        >
+          <Text style={styles.paramsToggleText}>
+            {paramsOpen ? '▾ 采样参数' : '▸ 采样参数'}
+          </Text>
+        </TouchableOpacity>
+        <Text style={styles.paramsSummary} testID="playground-params-summary">
+          T={temperature.toFixed(2)} · top_p={topP.toFixed(2)} · max={maxTokens}
+          {systemPrompt.trim() ? ' · system✓' : ''}
+        </Text>
+      </View>
+
+      {paramsOpen && (
+        <View style={styles.paramsPanel} testID="playground-params-panel">
+          <Slider
+            label="Temperature（随机性）"
+            value={temperature}
+            min={0}
+            max={2}
+            step={0.05}
+            onChange={setTemperature}
+            formatValue={(v) => v.toFixed(2)}
+            hint="越高越发散，0 最确定"
+            scaleLabels={['0', '2.0']}
+            testID="pg-temp-slider"
+            trackTestID="pg-temp-track"
+            thumbTestID="pg-temp-thumb"
+          />
+          <Slider
+            label="Top-P（核采样）"
+            value={topP}
+            min={0.05}
+            max={1}
+            step={0.05}
+            onChange={setTopP}
+            formatValue={(v) => v.toFixed(2)}
+            hint="只从累计概率前 P 的候选词中采样"
+            scaleLabels={['0.05', '1.0']}
+            testID="pg-topp-slider"
+            trackTestID="pg-topp-track"
+            thumbTestID="pg-topp-thumb"
+          />
+          <Slider
+            label="Max Tokens（生成长度上限）"
+            value={maxTokens}
+            min={128}
+            max={8192}
+            step={128}
+            onChange={setMaxTokens}
+            formatValue={(v) => `${v}`}
+            hint="单次回复的最大 Token 数"
+            scaleLabels={['128', '8192']}
+            testID="pg-maxtokens-slider"
+            trackTestID="pg-maxtokens-track"
+            thumbTestID="pg-maxtokens-thumb"
+          />
+          <Text style={styles.paramsLabel}>System Prompt（系统提示词）</Text>
+          <TextInput
+            style={styles.systemInput}
+            value={systemPrompt}
+            onChangeText={setSystemPrompt}
+            placeholder="可选，例如：你是一个严谨的分布式系统导师"
+            placeholderTextColor={colors.textSecondary}
+            multiline
+            testID="pg-system-input"
+          />
+        </View>
       )}
 
       {/* 对话区 —— 视觉上是一台真实终端（内阴影 + 顶部高光条）*/}
@@ -845,19 +999,67 @@ const styles = StyleSheet.create({
   },
 
   statsBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginTop: spacing.xs,
     paddingTop: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.divider,
     paddingBottom: spacing.xs,
   },
+  statRow: { flexDirection: 'row', alignItems: 'center' },
   statItem: { flex: 1, alignItems: 'center' },
   statDivider: { width: 1, height: 26, backgroundColor: colors.divider },
   statLabel: { color: colors.textSecondary, fontSize: fontSize.xs, marginBottom: 3 },
   statValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
   statValueAccent: { color: colors.accent },
+
+  // 阶段五 P0 · 费用拆解行
+  breakdownRow: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  breakdownTitle: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+    marginBottom: 3,
+  },
+  breakdownItem: { color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 16 },
+
+  // 阶段五 P0 · 采样参数面板
+  paramsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+  },
+  paramsToggle: { paddingVertical: 2, paddingRight: spacing.sm },
+  paramsToggleText: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
+  paramsSummary: { color: colors.textMuted, fontSize: fontSize.xs },
+  paramsPanel: {
+    marginTop: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    gap: spacing.md,
+  },
+  paramsLabel: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
+  systemInput: {
+    minHeight: 64,
+    maxHeight: 140,
+    backgroundColor: colors.bg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.textPrimary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: fontSize.md,
+    textAlignVertical: 'top',
+  },
 
   inputRow: {
     flexDirection: 'row',

@@ -270,6 +270,8 @@ export interface ChatUsage {
   total_tokens: number;
   cost_usd: number;
   cgas: number;
+  /** 算力基价（P_compute）—— 阶段五 P0 起后端随 usage 一并下发 */
+  base_compute_usd?: number;
   node_earn_usd?: number;
   creator_royalty_usd?: number;
   platform_fee_usd?: number;
@@ -550,8 +552,16 @@ export const withdrawCreatorRoyalty = async (
 
 export interface StreamChatOptions {
   model: string;
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
   apiKey?: string;
+  /** 采样温度（0 ~ 2）—— 阶段五 P0 */
+  temperature?: number;
+  /** Top-P 核采样（0 ~ 1）—— 阶段五 P0 */
+  topP?: number;
+  /** 单次输出上限 —— 阶段五 P0 */
+  maxTokens?: number;
+  /** 系统提示词 —— 阶段五 P0 · 决策 D7：计入计费输入 */
+  systemPrompt?: string;
   onOpen?: () => void;
   onReasoning?: (delta: string) => void;
   onContent?: (delta: string) => void;
@@ -691,7 +701,23 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
   xhr.setRequestHeader('Accept', 'text/event-stream');
   if (apiKey) xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
   xhr.timeout = 120000;
-  xhr.send(JSON.stringify({ model, messages, stream: true }));
+
+  // 阶段五 P0：系统提示词作为 **首条 system 消息**下发（决策 D7：计入计费输入），
+  // 采样参数（temperature / top_p / max_tokens）真正送到后端 ——
+  // 此前后端既不接收 top_p，也从不下发任何采样参数，前端调参对真实节点完全无效。
+  const systemPrompt = (options.systemPrompt ?? '').trim();
+  const finalMessages = systemPrompt
+    ? [{ role: 'system' as const, content: systemPrompt }, ...messages]
+    : messages;
+  const requestBody: Record<string, unknown> = {
+    model,
+    messages: finalMessages,
+    stream: true,
+  };
+  if (options.temperature !== undefined) requestBody.temperature = options.temperature;
+  if (options.topP !== undefined) requestBody.top_p = options.topP;
+  if (options.maxTokens !== undefined) requestBody.max_tokens = options.maxTokens;
+  xhr.send(JSON.stringify(requestBody));
 
   return {
     abort: () => {
