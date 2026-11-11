@@ -36,17 +36,44 @@ export const cloudApi = axios.create({
  */
 const JWT_ONLY_PATHS = ['/api/v1/owner/nodes/revenue'];
 
-const isSessionPath = (url: string | undefined): boolean => {
+/**
+ * 阶段四 P5 · 行动 b：**业主端点双通道**（钱包会话 JWT 或 API Key 都收）。
+ *
+ * 背景: M6 硬切把旧明文 Key 连同影子行一起废掉之后，
+ * 线上必须仍有业主通道。后端 `require_owner` 改成两种凭证都接受，
+ * 前端相应地：*有会话就优先用会话*（用户已签名登录，语义上更准），
+ * *没有会话就回落 API Key*（旧客户端零改动仍可用）。
+ *
+ * 注意 `/api/v1/owner/nodes/revenue` 是 JWT-**only**（后端不认 API Key），
+ * 所以判断顺序必须先判 JWT_ONLY 再判 owner 前缀 —— 否则会误落到 API Key 上。
+ */
+const OWNER_PATH_PREFIX = '/api/v1/owner';
+
+const isJwtOnlyPath = (url: string | undefined): boolean => {
   if (!url) return false;
   return JWT_ONLY_PATHS.some((p) => url.includes(p));
 };
 
-// 统一注入凭证：会话端点用 JWT，其余端点用买家 API Key
+const isOwnerPath = (url: string | undefined): boolean => {
+  if (!url) return false;
+  return url.includes(OWNER_PATH_PREFIX);
+};
+
+// 统一注入凭证：会话端点用 JWT，业主端点「会话优先、回落 API Key」，其余用买家 API Key
 cloudApi.interceptors.request.use((config) => {
   const { apiKey, sessionToken } = usePawStore.getState();
-  const credential = isSessionPath(config.url) ? sessionToken : apiKey;
+  let credential = apiKey;
+  if (isJwtOnlyPath(config.url)) {
+    credential = sessionToken;
+  } else if (isOwnerPath(config.url)) {
+    credential = sessionToken || apiKey;
+  }
   if (credential) {
     config.headers.Authorization = `Bearer ${credential}`;
+    // 记住这次用的是不是会话 —— 401 时只有"确实发了会话"才该清会话，
+    // 否则会因为一把坏掉的 API Key 把好端的钱包会话也踢掉。
+    (config as AxiosRequestConfig & { __apipawUsedSession?: boolean }).__apipawUsedSession =
+      !!sessionToken && credential === sessionToken;
   }
   return config;
 });
@@ -63,7 +90,9 @@ const MAX_GET_RETRIES = 2;
 cloudApi.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const config = error?.config as (AxiosRequestConfig & { __apipawRetry?: number }) | undefined;
+    const config = error?.config as
+      | (AxiosRequestConfig & { __apipawRetry?: number; __apipawUsedSession?: boolean })
+      | undefined;
     if (!config) return Promise.reject(error);
 
     const method = (config.method || 'get').toLowerCase();
@@ -74,7 +103,9 @@ cloudApi.interceptors.response.use(
 
     // 钱包会话失效（401）—— 服务端已撤销 / 令牌过期 / 密钥轮换。
     // 这里立刻清掉本地会话，让 UI 提示「需重新签名」，而不是继续拿着废令牌重试。
-    if (status === 401 && isSessionPath(config.url) && usePawStore.getState().sessionToken) {
+    // ⚠️ 只在**这次请求确实发了会话**时才清 —— 业主端点现在是「会话优先、回落 API Key」，
+    // 一把失效的 API Key 返回 401 不该把好端的钱包会话一起踢掉。
+    if (status === 401 && config.__apipawUsedSession && usePawStore.getState().sessionToken) {
       usePawStore.getState().clearSession();
     }
 

@@ -14,7 +14,8 @@
  *   2. 前端用钱包扩展的 personal_sign 产出**真实的 EIP-191 签名**（Node 侧 recover 校验）
  *   3. /api/v1/auth/verify 的 message 与挑战逐字节一致（服务端同款校验口径）
  *   4. 签发下来的 JWT 被写进 SecureStore/web localStorage
- *   5. 业主收益端点带的是 **JWT**，其余端点带的是 **API Key**（双通道鉴权不串味）
+ *   5. **业主端点**带的是 **JWT**（P5 起含 owner/dashboard），**非业主端点**带的是 **API Key**
+ *      （双通道鉴权不串味）
  *   6. 收益端点 401 → 前端立刻清会话（废令牌不再重试）
  *
  * ⚠️ 本脚本**不内置任何真实密钥**：钱包私钥运行时随机生成，API Key 是随机占位串。
@@ -378,7 +379,7 @@ async function main() {
     parsed?.token ? `${parsed.token.slice(0, 12)}…` : '无',
   );
 
-  console.log('\n[4] 双通道鉴权：收益端点用 JWT，其余端点用 API Key');
+  console.log('\n[4] 双通道鉴权：业主端点用 JWT，其余端点用 API Key');
   const revenueReqs = find('/api/v1/owner/nodes/revenue');
   check(revenueReqs.length >= 1, '拉取了本人节点收益', `实际 ${revenueReqs.length} 次`);
   const revenueAuth = revenueReqs[revenueReqs.length - 1]?.auth || '';
@@ -387,13 +388,24 @@ async function main() {
     '收益端点带的是钱包会话 JWT',
     revenueAuth.slice(0, 24) + '…',
   );
+  // 阶段四 P5 · 行动 b: 其余**业主端点**（owner/dashboard 等）也优先用会话 JWT ——
+  // 后端 require_owner 两种凭证都收, 前端「有会话用会话、没会话回落 API Key」。
+  const dashboardReqs = find('/api/v1/owner/dashboard');
+  const dashboardAuth = dashboardReqs[dashboardReqs.length - 1]?.auth || '';
+  check(
+    dashboardAuth === `Bearer ${parsed?.token}`,
+    '业主看板端点带的是钱包会话 JWT（P5 新增能力）',
+    dashboardAuth.slice(0, 24) + '…',
+  );
   const usageReqs = find('/api/v1/user/usage');
   const usageAuth = usageReqs[usageReqs.length - 1]?.auth || '';
   check(usageAuth === `Bearer ${dummyApiKey}`, '普通端点带的是 API Key（未被 JWT 污染）', usageAuth.slice(0, 20) + '…');
+  // ⚠️ 泄漏边界随 P5 一起改了: JWT 出现在**业主端点**是设计内的,
+  //    但绝不能出现在非业主端点（买家推理 / 账务 / 分析…）。
   const leak = netlog.filter(
-    (r) => r.path !== '/api/v1/owner/nodes/revenue' && r.auth === `Bearer ${parsed?.token}`,
+    (r) => !r.path.startsWith('/api/v1/owner/') && r.auth === `Bearer ${parsed?.token}`,
   );
-  check(leak.length === 0, 'JWT 没有泄漏到其它端点', `泄漏 ${leak.length} 处`);
+  check(leak.length === 0, 'JWT 没有泄漏到非业主端点', `泄漏 ${leak.length} 处`);
 
   console.log('\n[5] 会话失效 / 权限不足的处理');
   if (LIVE) {
