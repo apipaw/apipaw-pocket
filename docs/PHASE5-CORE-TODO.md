@@ -541,6 +541,22 @@ APIPAW_NODE_MAX_INFLIGHT=1
 | `D:\APIPawCloud\test_dispatch.py` | **37/37 通过**（顺带修复了阶段四 P0 遗留的鉴权失配：原为 4/36） |
 | `D:\APIPawPocket\e2e\playground-params.cjs` | **23/23 通过**（面板展开 / 滑块可拖 / 参数进请求体 / system 消息在最前 / 费用拆解渲染） |
 
+**生产部署与验收（2026-11-11 ~ 2026-11-12）**：
+
+| 步骤 | 动作 | 结果 |
+|---|---|---|
+| 备份 | `/opt/apipaw-backups/db/apipaw_20261111-p5p0.db` + `code/server.py.bak.20261111-p5p0` + `web/20261111-p5p0/{console,pocket}` | md5 留档 |
+| 后端部署 | 新 `server.py`（md5 `0761c3a0…`，属主 `user001:user001` 644）→ `py_compile`（3.6.8）→ `systemctl restart apipaw-cloud` | `active`；`/health` 200、`/v1/models` 200 |
+| 前端部署 | `expo export -p web`（产物 hash `index-32d64463….js`）→ 同步覆盖 `/var/www/apipaw-console` 与 `/var/www/apipaw-pocket` → `nginx -t` → **只 reload** | 两站点根 md5 一致；两域名均返回新 bundle 200 |
+| 生产冒烟 | `smoke_p5_p0_prod.py`（现场签发一次性买家 Key，跑完删净） | **9/9 通过**：200 / `base_compute_usd` 下发 / 系统提示词计费(D7) / 场景 B `cost = base×1.15` / 版税 `= base×0.15` / NET==BAL / 冻结结清 |
+| 基线复原 | 冒烟后重新采样 | `users=1`、`api_keys=2`、`usage_logs=27`、`balance_ledger=40`、`daily_spend=6`、`bal=net=1016.037562`、`integrity_check=ok` —— **与跑前逐项一致** |
+| 线上 e2e | `e2e/live-console.cjs`（OWNER Key） | **24/24 通过**（首跑 22/24，2 项失败为 CF 边缘冷启动抖动 —— 应用渲染耗时 105s，超出脚本等待分级；重跑全绿） |
+| 参数面板 e2e | `e2e/playground-params.cjs`（对 `dist/`） | **23/23 通过** |
+| 归档 | GitHub：`apipaw-cloud` `2d6d181` + `c78f957`；`apipaw-pocket` `d93f68e`；源站镜像 `89ac23a` | 已推送 |
+
+> 冒烟脚本踩过的坑：**必须用 CREATOR 档模型**（`qwen-2.5-72b`）验证 ×1.15 口径 ——
+> `llama-3.3-70b` 是 BASE 档，买家实付 = base（场景 A），用它断言 ×1.15 必然假失败。
+
 **未做（留给 P1 及以后）**：`settle_cost_v2` / `revenue_ledger` 建表 / 影子账 —— 属模块 A 的 P1，**P0 不碰生产计费口径**。
 
 ---
