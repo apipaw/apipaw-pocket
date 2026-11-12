@@ -172,6 +172,17 @@ export interface ModelInfo {
   context_window: number;
   reasoning: boolean;
   pricing: ModelPricing;
+  /**
+   * 阶段五 P1 · 场景标识：
+   * A = 开源基础模型（无版税，买家实付 = 算力基价）
+   * B = 社区创作者模型（含版税，买家实付 = 算力基价 × (1 + 版税率)）
+   * 老网关不下发该字段时按 tier 兜底推导。
+   */
+  scenario?: 'A' | 'B';
+  /** 阶段五 P1 · 版税率（0.15 = 15%）；仅场景 B 有效。 */
+  royalty_rate?: number;
+  /** 阶段五 P1 · 版税模式（RATE = 按比例；ABSOLUTE 为预留位，当前不实现）。 */
+  royalty_mode?: string;
 }
 
 export interface ModelListResponse {

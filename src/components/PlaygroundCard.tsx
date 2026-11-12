@@ -64,6 +64,26 @@ const estimateTokens = (text: string): number => {
   return Math.max(1, Math.round(cjk + other / 3.6));
 };
 
+/** 阶段五 P1 · 场景推导：A = 开源基础模型 / B = 社区创作者模型。
+ *  老网关不下发 scenario 字段时按 tier 兜底。 */
+const scenarioOf = (model?: ModelInfo | null): 'A' | 'B' =>
+  model?.scenario ?? (model?.tier === 'CREATOR' ? 'B' : 'A');
+
+/** 阶段五 P1 · 版税率（**只有场景 B 才有**；老网关按决策 D4 的固定 15% 兜底）。
+ *  注意：网关对场景 A 的模型也会下发 royalty_rate=0.15（那是 models 表的列默认值），
+ *  前端必须按**场景**判定，否则场景 A 会被凭空加上 15% 的版税。 */
+const royaltyRateOf = (model?: ModelInfo | null): number => {
+  if (!model) return 0;
+  if (scenarioOf(model) !== 'B') return 0;
+  if (typeof model.royalty_rate === 'number') return model.royalty_rate;
+  return 0.15;
+};
+
+const SCENARIO_LABEL: Record<'A' | 'B', string> = {
+  A: '场景 A · 开源基础模型',
+  B: '场景 B · 社区创作者模型',
+};
+
 const copyToClipboard = async (text: string): Promise<boolean> => {
   try {
     await Clipboard.setStringAsync(text);
@@ -280,6 +300,48 @@ const PlaygroundCard: React.FC = () => {
     }
     return '你好，请介绍一下 APIPaw 去中心化算力网络';
   }, [messages]);
+
+  // ----------------- 阶段五 P1 · 本次预计花费 -----------------
+  // 按「当前输入内容 + 系统提示词 + 当前模型单价」实时估算本次开销，
+  // 让买家在按下发送之前就知道这一单大概要花多少钱。
+  //
+  // 口径（与后端 settle_cost 对齐）：
+  //   算力费 = 输入 tok/1000×输入单价 + 输出 tok/1000×输出单价
+  //   场景 B：买家实付 = 算力费 × (1 + 版税率)；场景 A：无版税。
+  const costPreview = useMemo(() => {
+    const model = activeModel;
+    if (!model) return null;
+    const sys = systemPrompt.trim();
+    const billingText = sys ? `${sys}\n${input}` : input;
+    // 空输入时按一个占位词估算，避免显示 $0.00 造成"免费"的错觉
+    const promptTokens = estimateTokens(billingText || '你好');
+    // 输出 token：优先用上一轮实际值，没有历史就用 256 的保守估计
+    let completionTokens = 256;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const stats = messages[i].stats;
+      if (stats && stats.completionTokens > 0) {
+        completionTokens = stats.completionTokens;
+        break;
+      }
+    }
+    completionTokens = Math.min(completionTokens, maxTokens);
+    const computeUsd =
+      (promptTokens / 1000.0) * model.pricing.prompt_per_1k_usd +
+      (completionTokens / 1000.0) * model.pricing.completion_per_1k_usd;
+    const rate = royaltyRateOf(model);
+    const royaltyUsd = computeUsd * rate;
+    const totalUsd = computeUsd + royaltyUsd;
+    return {
+      promptTokens,
+      completionTokens,
+      computeUsd,
+      royaltyUsd,
+      totalUsd,
+      rate,
+      scenario: scenarioOf(model),
+      cgas: totalUsd * (model.pricing.usd_to_cgas || 100),
+    };
+  }, [activeModel, input, systemPrompt, maxTokens, messages]);
 
   // ----------------- 代码导出 -----------------
 
@@ -532,6 +594,21 @@ for await (const chunk of stream) {
         </View>
         <View style={styles.modelSelectorRight}>
           {activeModel && (
+            <View
+              style={[
+                styles.scenarioBadge,
+                scenarioOf(activeModel) === 'B' ? styles.scenarioBadgeB : styles.scenarioBadgeA,
+              ]}
+              testID="playground-scenario-badge"
+            >
+              <Text style={styles.scenarioBadgeText}>
+                {scenarioOf(activeModel) === 'B'
+                  ? `场景B · 版税 ${(royaltyRateOf(activeModel) * 100).toFixed(0)}%`
+                  : '场景A · 开源基础'}
+              </Text>
+            </View>
+          )}
+          {activeModel && (
             <View style={[styles.tierBadge, activeModel.tier === 'CREATOR' ? styles.tierBadgeCreator : styles.tierBadgeBase]}>
               <Text style={styles.tierBadgeText}>
                 {activeModel.tier === 'CREATOR' ? '社区创作者' : '开源基础'}
@@ -548,9 +625,27 @@ for await (const chunk of stream) {
 
       {activeModel && (
         <Text style={styles.modelMeta} id="apx-model-meta">
-          {activeModel.description} · 输入 ${activeModel.pricing.prompt_per_1k_usd}/1K ·
+          {SCENARIO_LABEL[scenarioOf(activeModel)]} · {activeModel.description} ·
+          输入 ${activeModel.pricing.prompt_per_1k_usd}/1K ·
           输出 ${activeModel.pricing.completion_per_1k_usd}/1K · 上下文 {activeModel.context_window}
         </Text>
+      )}
+
+      {/* 阶段五 P1 · 本次预计花费（按当前输入 + 当前模型单价实时估算） */}
+      {activeModel && costPreview && (
+        <View style={styles.costPreviewRow} testID="playground-cost-preview">
+          <Text style={styles.costPreviewLabel}>本次预计花费</Text>
+          <Text style={styles.costPreviewValue} testID="playground-cost-preview-value">
+            ≈ ${costPreview.totalUsd.toFixed(6)} / {costPreview.cgas.toFixed(2)} CGas
+          </Text>
+          <Text style={styles.costPreviewDetail} testID="playground-cost-preview-detail">
+            输入 {costPreview.promptTokens} tok · 输出 ~{costPreview.completionTokens} tok ·
+            算力 ${costPreview.computeUsd.toFixed(6)}
+            {costPreview.rate > 0
+              ? ` · 版税 ${(costPreview.rate * 100).toFixed(0)}% $${costPreview.royaltyUsd.toFixed(6)}`
+              : ' · 无版税'}
+          </Text>
+        </View>
       )}
 
       {/* 阶段五 P0 · 采样参数面板
@@ -736,18 +831,27 @@ for await (const chunk of stream) {
             {models.map((model) => (
               <TouchableOpacity
                 key={model.id}
+                testID={`playground-model-item-${model.id}`}
                 style={[
                   styles.pickerItem,
                   model.id === selectedModelId && styles.pickerItemActive,
                 ]}
                 onPress={() => {
+                  // 阶段五 P1：切换模型**保留会话与参数状态**（只换 model_id）
                   setSelectedModelId(model.id);
                   setPickerOpen(false);
                 }}
               >
                 <View style={styles.pickerItemLeft}>
                   <Text style={styles.pickerItemTitle}>{model.display_name}</Text>
-                  <Text style={styles.pickerItemDesc}>{model.description}</Text>
+                  <Text style={styles.pickerItemDesc}>
+                    {SCENARIO_LABEL[scenarioOf(model)]}
+                    {scenarioOf(model) === 'B'
+                      ? ` · 版税 ${(royaltyRateOf(model) * 100).toFixed(0)}%`
+                      : ''}
+                    {' · '}
+                    {model.description}
+                  </Text>
                 </View>
                 <View style={styles.pickerItemRight}>
                   <View
@@ -900,10 +1004,45 @@ const styles = StyleSheet.create({
   tierBadgeBase: { backgroundColor: 'rgba(59, 130, 246, 0.18)' },
   tierBadgeCreator: { backgroundColor: colors.warnSoft },
   tierBadgeText: { color: colors.textBody, fontSize: fontSize.sm, fontWeight: '700' },
+  // 阶段五 P1 · 场景徽标（A 开源基础 / B 社区创作者 + 版税率）
+  scenarioBadge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    marginRight: spacing.xs,
+  },
+  scenarioBadgeA: { backgroundColor: colors.cyanSoft },
+  scenarioBadgeB: { backgroundColor: colors.purpleSoft },
+  scenarioBadgeText: { color: colors.textBody, fontSize: fontSize.sm, fontWeight: '700' },
   modelMeta: {
     color: colors.textSecondary,
     fontSize: fontSize.md,
     marginTop: spacing.sm,
+  },
+  // 阶段五 P1 · 本次预计花费
+  costPreviewRow: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.cardAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  costPreviewLabel: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+  },
+  costPreviewValue: {
+    color: colors.accent,
+    fontSize: fontSize.lg,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  costPreviewDetail: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    marginTop: 2,
   },
   modelsError: { color: colors.danger, fontSize: fontSize.sm, marginTop: spacing.xs },
 
