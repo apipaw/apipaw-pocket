@@ -499,7 +499,7 @@ SUM(balance_ledger.direction × amount_usd) == SUM(users.balance_usd)
 |---|---|---|---|---|
 | **P0**<br>✅ 已完成 | 口径冻结 + 蓝图评审 + `PAWMODEL_SPEC`/`DISPATCH_PROTOCOL` 同步 | 候选池**公平排序**（最久未派单优先）+ 让退 30s 冷却 + `SETTLEMENT_RECEIPT` 瘦身 | 参数面板 + 费用拆解 + `e2e/playground-params.cjs` | 买家价格零变化；沙箱矩阵全绿 |
 | **P1** | `settle_cost_v2` + `usage_logs` 新列 + `revenue_ledger` 建表 + `migrate_phase5_billing_split()`（**影子模式**：v2 只算不扣） | `model_ref` 不透明派单（协议 v2，向后兼容）+ `capability_class` 门槛 + 并发上限 | 多模型切换 + 场景徽标 + 预估花费 | 影子账与 v1 账**逐笔相等**（容差 1e-9） |
-| **P2** | v2 口径**切正**（开关翻正）+ 分账流水写正 + 提现口径切换 + analytics 聚合改口径 | `reliability_score` 降权 + 派单决策元数据落库 + 公平性告警 | CoT 卡片增强 + TTFT/吞吐读数 + 账单小票 | 守恒不变式全绿；买家侧账单无回归 |
+| **P2**<br>✅ 已完成 | v2 口径**切正**（开关翻正）+ 分账流水写正 + 提现口径切换 + analytics 聚合改口径 | `reliability_score` 降权 + 派单决策元数据落库 + 公平性告警 | CoT 卡片增强 + TTFT/吞吐读数 + 账单小票 | 守恒不变式全绿；买家侧账单无回归 |
 | **P3** | `royalty_rate` 模型级开放（受控） | **能力等级 + 统一算力单价**（定价级变更，需拍板 D5）+ Agent 客户端配套 | 代码导出状态化 + 账单区占比环 | 三方分配额变化与预期一致（对照表签字） |
 | **P4** | 对账报表 + 审计导出 | 协议 v2 全量切换 + v1 下线 | `ttft_ms`/`throughput_tps` 后端补齐 + 全量验收 | 两条账各自自洽；双站点根部署完成 |
 
@@ -507,8 +507,10 @@ SUM(balance_ledger.direction × amount_usd) == SUM(users.balance_usd)
 
 ```
 APIPAW_BILLING_SPLIT_V2=0|1     # A：v2 结算口径（影子→切正）
-APIPAW_MATCHMAKER_FAIR=0|1      # B：公平排序 + 冷却 + 并发上限
+APIPAW_BILLING_SPLIT_CUTOVER=0|1  # A：v2 切正（权威口径，P2 起生产已开）
+APIPAW_MATCHMAKER_FAIR=0|1      # B：公平排序 + 冷却 + 并发上限（P2 起生产已开）
 APIPAW_NODE_BLIND_DISPATCH=0|1  # B：不透明 model_ref 派单
+APIPAW_NODE_RELIABILITY=0|1     # B：节点信用分降权（默认 1）
 APIPAW_DISPATCH_ENABLED=0|1     # 既有：真实节点派单
 ```
 
@@ -616,6 +618,75 @@ APIPAW_DISPATCH_ENABLED=1     # 既有：真实节点派单
    不是 1e-9。
 6. **网关对场景 A 也下发 `royalty_rate=0.15`**（列默认值）—— 前端必须**按场景判定**是否计版税，
    否则场景 A 的预计花费被凭空放大 15%。
+
+---
+
+### 5.3 P2 交付记录（2026-11-12）
+
+**已落地的代码改动**：
+
+| 模块 | 改动 | 文件 |
+|---|---|---|
+| A（v2 切正 + 读侧全面切换） | 切正开关 `APIPAW_BILLING_SPLIT_CUTOVER`：**新行**买家实付取 v2 权威口径（数值与 v1 恒等 → 不变式 I5），**旧列同时落 v2 数字**（单行自洽，旧列上的 I6 同样成立）；**历史行一律不回填**（决策 D2）；读侧统一用 `CASE WHEN p_compute_usd > 0 THEN <v2 列> ELSE <v1 旧列> END` 平滑兼容 —— 覆盖 `get_usage_analytics`（新增 `eff_node_share_usd`/`eff_creator_share_usd`/`eff_platform_fee_usd`/`eff_royalty_pool_usd` 聚合 + `settlement` 四项 v2 字段）、`get_creator_royalty`（创作者收益 = 版税池 85%，另暴露 `royalty_pool_usd`/`platform_fee_usd` 透明化）、`record_withdrawal`（提现口径，带 `OperationalError` 回落，老库也不会 500）、`get_owner_nodes_revenue`（业主收益聚合新增 `split`） | `D:\APIPawCloud\db.py`、`server.py` |
+| B（信用分降权 + 派单可观测性） | 新表 `node_reliability`（**落在主库**，不碰注册表 —— 规避 DAY13「database is locked」事故）与 `dispatch_log`（派单决策元数据：`candidate_pool_size`/`selected_reason`/`yielded_by`/`retry_count`/`outcome`）；`adjust_node_reliability()`（让退扣 0.15、成功接单回补 0.05、钳制在 [0.1, 1.0]）；`_apply_fair_order` 排序键改为 `(node_last_dispatched, -reliability, nid)` —— **信用分只作次级键**，不改变候选资格；信用分与 `MATCHMAKER_FAIR` **解耦**（30s 冷却过了仍要扣信用分）；`get_dispatch_fairness()` 公平性告警（单节点热点 >40% / 让退率 >20% / 候选池为空率 >20%）；`/api/v1/owner/dashboard` 回传 `dispatch_fairness` 与每节点 `reliability_score` | `D:\APIPawCloud\db.py`、`server.py` |
+| C（Playground P2） | D8 来源徽标：响应头 `X-APIPaw-Dispatch` + `usage.answer_source` → 回答区与 `ReasoningCard` 双徽标（「真实节点 / 模拟回答」）；CoT 折叠态显示 token 数 + **一键复制**；D9 性能读数：`StatTile` 三连（**前端本地计时** TTFT / 吐字速度 tok/s / 总 token，流式过程中实时跳动）+ 流末「**账单小票**」（算力费 / 创作者版税 / 平台管理费 / 买家实付四项，取 v2 权威口径，老网关回落旧字段） | `D:\APIPawPocket\src\api\cloudClient.ts`、`src\components\PlaygroundCard.tsx`、`e2e\playground-perf.cjs` |
+| 运维加固 | 新增 `deploy_backup.sh`（**一次做齐三份备份**：DB `.backup` 快照 + **源站后端代码文件单独备份** + 双站点根前端包）+ `docs/DEPLOY-RUNBOOK.md`（标准部署动作清单，红线写死） | `D:\APIPawCloud\deploy_backup.sh`、`docs\DEPLOY-RUNBOOK.md` |
+
+**开关**（P2 起生产全部打开）：
+
+```
+APIPAW_BILLING_SPLIT_V2=1         # A：影子底座（保留，便于对照）
+APIPAW_BILLING_SPLIT_CUTOVER=1    # A：v2 切正（权威口径）
+APIPAW_MATCHMAKER_FAIR=1          # B：公平排序 + 30s 冷却 + 并发上限
+APIPAW_NODE_RELIABILITY=1         # B：信用分降权
+APIPAW_NODE_BLIND_DISPATCH=1      # B：盲派单 v2
+APIPAW_DISPATCH_ENABLED=1         # 既有：真实节点派单
+```
+
+**回归结果**：
+
+| 套件 | 结果 |
+|---|---|
+| `D:\APIPawCloud\test_phase5_p2.py` | **34/34 通过**（切正后旧列自洽 / 历史行不回填 / analytics 新旧混算 / 创作者 85% 口径 / 提现口径 / 信用分增减与钳制 / 公平性三级告警 / 端到端 I6 守恒） |
+| `D:\APIPawCloud\test_phase5_p1.py` | **32/32 通过**（P1 未回归） |
+| `D:\APIPawCloud\test_phase5_p0.py` | **25/25 通过**（P0 未回归） |
+| `D:\APIPawCloud\test_dispatch.py` | **37/37 通过** |
+| `D:\APIPawCloud\test_db_compat.py` / `test_py36_compat.py` | **8/8 / 6/6 通过**（老库兼容 + Python 3.6.8 语法兼容） |
+| `D:\APIPawPocket\e2e\playground-perf.cjs` | **19/19 通过**（hermetic：来源徽标 / CoT 徽标 + 复制 + token 数 / TTFT·tok/s·token 三块 StatTile / 账单小票四项 v2 口径） |
+| `D:\APIPawPocket\e2e\playground-params.cjs` / `playground-models.cjs` | **23/23 / 18/18 通过**（P0/P1 前端未回归） |
+
+**生产部署与验收（2026-11-12）**：
+
+| 步骤 | 动作 | 结果 |
+|---|---|---|
+| 备份（固定动作） | `bash deploy_backup.sh p5-p2` → `/opt/apipaw-backups/db/*.db`（`.backup` 快照）+ **`/opt/apipaw-backups/code/p5-p2_*_server.py|_db.py|…`**（**源站后端代码单独备份，P2 新增**）+ `/opt/apipaw-backups/web/*.tar.gz`（双站点根） | 已留档 |
+| 后端部署 | `server.py`（md5 `219f1755…`）+ `db.py`（md5 `664ae16f…`）→ **Python 3.6.8 `py_compile` 通过** → `systemctl restart apipaw-cloud` | `active`；启动日志「阶段五 P2 派单底座就绪：`dispatch_log` + `node_reliability`」 |
+| 开关 | systemd 追加 `APIPAW_BILLING_SPLIT_CUTOVER=1` / `APIPAW_MATCHMAKER_FAIR=1` / `APIPAW_NODE_RELIABILITY=1` | `systemctl` 已确认 |
+| 前端部署 | `expo export -p web`（产物 `index-626ecbb4….js`）→ 同步覆盖 `/var/www/apipaw-console` 与 `/var/www/apipaw-pocket` → `nginx -t` → **只 reload** | 两域名 200，均指向新 bundle |
+| 生产冒烟 | `smoke_p5_p2_prod.py`（现场签发一次性买家 Key + 临时创作者模型，跑完删净） | **38/38 通过**：新行 v2 明细守恒 I6 / **旧列也守恒** / 历史 27 行指纹逐字不变 / analytics 新旧混算不清零 / 创作者收益 = 版税池 85% + 池与平台费透明 / `dispatch_log` 元数据齐全 / NET==BAL |
+| 基线复原 | 冒烟后重新采样 | `users=1`、`api_keys=2`、`usage_logs=27`、`balance_ledger=40`、`daily_spend=6`、`revenue_ledger=0`、`models=5`、`dispatch_log=0`、`node_reliability=0`、**`bal=net=1016.037562`**、`integrity_check=ok` —— **与跑前逐项一致** |
+| 影子对账 | 服务日志 `SHADOW-MISMATCH` 计数 | **0** |
+| 线上前端探针 | `node e2e/playground-perf.cjs https://console.apipaw.com`（打线上 bundle，API 用 mock 拦截，不碰真实账务） | **19/19 通过**：来源徽标「真实节点」/ CoT 徽标 + 复制 + token 数 / TTFT 45ms / tok/s / 账单小票四项 —— **线上 bundle 确已生效** |
+
+**P2 踩过的坑**：
+
+1. **无节点折叠分支漏改平台费总额** —— 折叠时把 `platform_compute_fee_usd` 改成 `P_compute`，
+   却没重算 `platform_fee_usd`（总额）→ 「节点 + 创作者 + 平台」在 v2 明细上**不守恒**
+   （沙箱实测 sum=0.013314 vs cost=0.051037）。切正后旧列也会跟着错。**折叠分支必须同时重算总额**。
+2. **CORS 默认不暴露自定义响应头** —— Starlette `CORSMiddleware` 的 `expose_headers=()`，
+   浏览器 JS **读不到** `X-APIPaw-Dispatch` → 来源徽标永远拿不到来源。必须显式
+   `expose_headers=["X-APIPaw-Dispatch", "X-Request-Id"]`。
+3. **urllib 会把响应头名规范化** —— `dict(resp.getheaders())` 给出的是 `X-Apipaw-Dispatch`，
+   按 `X-APIPaw-Dispatch` 取会拿到 `None`，冒烟脚本会误报「响应头缺失」。统一转小写做**大小写无关**查找。
+4. **冒烟脚本里阻塞 HTTP 调用会冻住事件循环** —— 直接在 asyncio 循环里调 `http.client`
+   会让假节点来不及应答，请求拖到 20s 派单超时才发出去。必须 `loop.run_in_executor` 包一层。
+5. **凭据大小写陷阱** —— `seed_node_credentials(node_ids, secret)` 的参数顺序；
+   `db.get_balance` / `db.get_net_spend` **不存在**，余额核对要直接查 `balance_ledger` 与 `users`。
+6. **部署脚本里的引号会吃掉整个循环** —— `"${VAR:-a b}"` 加引号后整串被当成**一个**目录名，
+   前端备份循环一次都不执行（且**静默**）。要用无引号展开做分词。
+7. **`tar | ssh` + `sudo -S` 会截断传输流** —— 远端 `echo pwd | sudo -S bash -c "tar xzf -"`
+   会把 stdin 吞掉一半，报 `gzip: stdin: unexpected end of file`（本轮就把两个站点根清空了）。
+   **改用 `scp` 传 `.tar.gz` 再本地解包**，别走管道。
 
 ---
 

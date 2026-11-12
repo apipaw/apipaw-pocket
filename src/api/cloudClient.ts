@@ -286,6 +286,17 @@ export interface ChatUsage {
   node_earn_usd?: number;
   creator_royalty_usd?: number;
   platform_fee_usd?: number;
+  /** 阶段五 P2 · 回答来源：node=真实节点 / simulated=模拟回答 / fallback=回退模拟 */
+  answer_source?: string;
+  /** 阶段五 P2 · v2 分账明细（切正后的权威口径；老网关不下发时前端回落旧字段） */
+  p_compute_usd?: number;
+  p_royalty_usd?: number;
+  node_share_usd?: number;
+  creator_share_usd?: number;
+  platform_compute_fee_usd?: number;
+  platform_royalty_fee_usd?: number;
+  platform_total_usd?: number;
+  royalty_rate?: number;
 }
 
 // ----------------- 创作者端类型 (CreatorEx) -----------------
@@ -574,6 +585,9 @@ export interface StreamChatOptions {
   /** 系统提示词 —— 阶段五 P0 · 决策 D7：计入计费输入 */
   systemPrompt?: string;
   onOpen?: () => void;
+  /** 阶段五 P2 · 回答来源（响应头 X-APIPaw-Dispatch）：node / simulated / fallback。
+   *  头在 readyState=2 时就可用 ⇒ 徽标能在流开始时就亮出来。 */
+  onDispatch?: (mode: string) => void;
   onReasoning?: (delta: string) => void;
   onContent?: (delta: string) => void;
   onUsage?: (usage: ChatUsage) => void;
@@ -590,7 +604,7 @@ export interface StreamChatHandle {
  * 相比 fetch 的 ReadableStream，XMLHttpRequest 在 Expo Web 与原生端均可稳定拿到分片文本。
  */
 export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
-  const { model, messages, onOpen, onReasoning, onContent, onUsage, onDone, onError } = options;
+  const { model, messages, onOpen, onDispatch, onReasoning, onContent, onUsage, onDone, onError } = options;
   const apiKey = options.apiKey ?? usePawStore.getState().apiKey;
 
   const xhr = new XMLHttpRequest();
@@ -664,6 +678,13 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
   xhr.onreadystatechange = () => {
     if (xhr.readyState === 2) {
       onOpen?.();
+      // 阶段五 P2：响应头带本次回答来源（真实节点 / 模拟回答）
+      try {
+        const mode = xhr.getResponseHeader('X-APIPaw-Dispatch');
+        if (mode) onDispatch?.(mode);
+      } catch {
+        /* 某些环境不支持读响应头，忽略即可（usage 里还有一份 answer_source） */
+      }
       return;
     }
     if (xhr.readyState !== 4) return;

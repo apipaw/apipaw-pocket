@@ -21,6 +21,7 @@ import {
   streamChat,
 } from '../api/cloudClient';
 import { colors, fontSize, radius, spacing } from '../theme';
+import { StatTile } from './ui';
 import Slider from './Slider';
 
 // ----------------- 类型 -----------------
@@ -32,11 +33,20 @@ export interface RunStats {
   cgas: number;
   promptTokens: number;
   completionTokens: number;
+  totalTokens: number;
   /** 阶段五 P0 · 费用拆解（后端 usage 载荷已下发，前端此前没接） */
   baseComputeUsd: number;
   nodeEarnUsd: number;
   creatorRoyaltyUsd: number;
   platformFeeUsd: number;
+  /** 阶段五 P2 · v2 分账明细（切正后的权威口径） */
+  royaltyPoolUsd: number;
+  creatorShareUsd: number;
+  platformTotalUsd: number;
+  /** 阶段五 P2 · 回答来源（node / simulated / fallback） */
+  answerSource?: string;
+  /** 阶段五 P2 · D9：流式过程中的临时统计（费用尚未结算，不展示小票） */
+  partial?: boolean;
 }
 
 export interface ChatMessageItem {
@@ -48,6 +58,8 @@ export interface ChatMessageItem {
   reasoningEndedAt?: number;
   stats?: RunStats;
   error?: string;
+  /** 阶段五 P2 · 本次回答来源（流开始时就能拿到，用于来源徽标） */
+  answerSource?: string;
 }
 
 type ExporterTab = 'curl' | 'python' | 'javascript';
@@ -103,6 +115,15 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
 
 const formatMs = (ms: number): string => (ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`);
 
+/** 阶段五 P2 · D8 · 回答来源徽标：让买家一眼看出这答案是真节点跑的还是平台模拟的。 */
+const SOURCE_META: Record<string, { label: string; color: string }> = {
+  node: { label: '真实节点', color: colors.accent },
+  simulated: { label: '模拟回答', color: colors.warn },
+  fallback: { label: '回退模拟', color: colors.warn },
+};
+
+const sourceMetaOf = (mode?: string | null) => SOURCE_META[String(mode || '')] ?? null;
+
 // ----------------- 思考链 (CoT) 卡片 -----------------
 
 interface ReasoningCardProps {
@@ -110,10 +131,21 @@ interface ReasoningCardProps {
   live: boolean;
   elapsedMs: number;
   onToggle: () => void;
+  /** 阶段五 P2 · D8：来源徽标（真实节点 / 模拟回答） */
+  sourceLabel?: string;
+  sourceColor?: string;
 }
 
-const ReasoningCard: React.FC<ReasoningCardProps> = ({ text, live, elapsedMs, onToggle }) => {
+const ReasoningCard: React.FC<ReasoningCardProps> = ({
+  text,
+  live,
+  elapsedMs,
+  onToggle,
+  sourceLabel,
+  sourceColor,
+}) => {
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const userToggled = useRef(false);
 
@@ -141,6 +173,15 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({ text, live, elapsedMs, on
     onToggle();
   };
 
+  // 阶段五 P2 · D8：思考链一键复制（折叠状态下也能复制）
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(stripThinkTags(text));
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }
+  };
+
   const maxHeight = progress.interpolate({ inputRange: [0, 1], outputRange: [0, 460] });
   const opacity = progress.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 0.4, 1] });
 
@@ -155,8 +196,28 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({ text, live, elapsedMs, on
           <Text style={[styles.reasonTitle, live && styles.reasonTitleLive]}>
             {live ? `深度思考中... (耗时 ${seconds}s | ${tokens} Tokens)` : `思考完成 · 耗时 ${seconds}s · ${tokens} Tokens`}
           </Text>
+          {sourceLabel ? (
+            <View
+              style={[styles.sourceBadge, { borderColor: `${sourceColor || colors.cyan}66` }]}
+              testID="playground-cot-source"
+            >
+              <Text style={[styles.sourceBadgeText, { color: sourceColor || colors.cyan }]}>
+                {sourceLabel}
+              </Text>
+            </View>
+          ) : null}
         </View>
-        <Text style={styles.reasonChevron}>{expanded ? '▾' : '▸'}</Text>
+        <View style={styles.reasonHeaderRight}>
+          <TouchableOpacity
+            style={styles.reasonCopyBtn}
+            onPress={handleCopy}
+            activeOpacity={0.7}
+            testID="playground-cot-copy"
+          >
+            <Text style={styles.reasonCopyText}>{copied ? '已复制' : '复制'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.reasonChevron}>{expanded ? '▾' : '▸'}</Text>
+        </View>
       </TouchableOpacity>
       <Animated.View style={[styles.reasonBody, { maxHeight, opacity }]}>
         <Text style={styles.reasonText}>{stripThinkTags(text)}</Text>
@@ -169,39 +230,54 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({ text, live, elapsedMs, on
 
 const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
   <View style={styles.statsBar}>
-    <View style={styles.statRow}>
-      <View style={styles.statItem}>
-        <Text style={styles.statLabel}>首字延迟 TTFT</Text>
-        <Text style={styles.statValue}>{formatMs(stats.ttftMs)}</Text>
+    {/* 阶段五 P2 · D9：三块 StatTile —— 首字延迟 / 吐字速度 / 总 token。
+        TTFT 与 tok/s 都是**前端本地计时**（请求发出 → 第一个有效 delta）。 */}
+    <View style={styles.statTilesRow}>
+      <View style={styles.statTileWrap} testID="playground-stat-ttft">
+        <StatTile label="首字延迟 TTFT" value={formatMs(stats.ttftMs)} tone="cyan" />
       </View>
-      <View style={styles.statDivider} />
-      <View style={styles.statItem}>
-        <Text style={styles.statLabel}>吐字速度</Text>
-        <Text style={styles.statValue}>{stats.tokensPerSec.toFixed(1)} tok/s</Text>
+      <View style={styles.statTileWrap} testID="playground-stat-tps">
+        <StatTile
+          label="吐字速度"
+          value={stats.tokensPerSec.toFixed(1)}
+          unit="tok/s"
+          tone="emerald"
+        />
       </View>
-      <View style={styles.statDivider} />
-      <View style={styles.statItem}>
-        <Text style={styles.statLabel}>本次花费</Text>
-        <Text style={[styles.statValue, styles.statValueAccent]}>
-          ${stats.costUsd.toFixed(4)} / {stats.cgas.toFixed(1)} CGas
-        </Text>
+      <View style={styles.statTileWrap} testID="playground-stat-tokens">
+        <StatTile
+          label="总 Tokens"
+          value={String(stats.totalTokens)}
+          tone="violet"
+          hint={`输入 ${stats.promptTokens} / 输出 ${stats.completionTokens}`}
+        />
       </View>
     </View>
 
-    {/* 阶段五 P0 · 费用拆解：算力费 / 创作者版税 / 平台管理费
-        （口径来自后端 usage 载荷；场景 A 无创作者版税，场景 B 才有） */}
-    <View style={styles.breakdownRow} testID="playground-cost-breakdown">
-      <Text style={styles.breakdownTitle}>费用拆解</Text>
-      <Text style={styles.breakdownItem} testID="playground-cost-compute">
-        算力费 ${stats.baseComputeUsd.toFixed(6)}
+    {/* 阶段五 P2 · D9：「账单小票」—— 单次请求的四项费用，结算后一目了然。
+        口径优先用 v2 明细（切正后的权威口径），老网关不下发时回落旧字段。
+        流式过程中费用尚未结算（partial）→ 小票等结算完成再出现。 */}
+    {stats.partial ? (
+      <Text style={styles.breakdownTitle} testID="playground-cost-pending">
+        账单小票 · 结算中…
       </Text>
-      <Text style={styles.breakdownItem} testID="playground-cost-royalty">
-        创作者版税 ${stats.creatorRoyaltyUsd.toFixed(6)}
-      </Text>
-      <Text style={styles.breakdownItem} testID="playground-cost-platform">
-        平台管理费 ${stats.platformFeeUsd.toFixed(6)}
-      </Text>
-    </View>
+    ) : (
+      <View style={styles.breakdownRow} testID="playground-cost-breakdown">
+        <Text style={styles.breakdownTitle}>账单小票</Text>
+        <Text style={styles.breakdownItem} testID="playground-cost-compute">
+          算力费 ${stats.baseComputeUsd.toFixed(6)}
+        </Text>
+        <Text style={styles.breakdownItem} testID="playground-cost-royalty">
+          创作者版税 ${stats.creatorRoyaltyUsd.toFixed(6)}
+        </Text>
+        <Text style={styles.breakdownItem} testID="playground-cost-platform">
+          平台管理费 ${stats.platformTotalUsd.toFixed(6)}
+        </Text>
+        <Text style={[styles.breakdownItem, styles.breakdownTotal]} testID="playground-receipt-total">
+          买家实付 ${stats.costUsd.toFixed(6)} · {stats.cgas.toFixed(1)} CGas
+        </Text>
+      </View>
+    )}
   </View>
 );
 
@@ -221,7 +297,7 @@ const PlaygroundCard: React.FC = () => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [streaming, setStreaming] = useState(false);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
   // ----------------- 阶段五 P0 · 参数面板 -----------------
   // 此前 Playground 只能改模型，采样参数一概不可调 —— 即便调了也不会生效
@@ -241,12 +317,23 @@ const PlaygroundCard: React.FC = () => {
     usage: null as {
       completion_tokens: number;
       prompt_tokens: number;
+      total_tokens?: number;
       cost_usd: number;
       cgas: number;
       base_compute_usd?: number;
       node_earn_usd?: number;
       creator_royalty_usd?: number;
       platform_fee_usd?: number;
+      // 阶段五 P2 · v2 分账明细
+      answer_source?: string;
+      p_compute_usd?: number;
+      p_royalty_usd?: number;
+      node_share_usd?: number;
+      creator_share_usd?: number;
+      platform_compute_fee_usd?: number;
+      platform_royalty_fee_usd?: number;
+      platform_total_usd?: number;
+      royalty_rate?: number;
     } | null,
   });
 
@@ -440,7 +527,21 @@ for await (const chunk of stream) {
     const ttftMs = run.firstTokenAt ? run.firstTokenAt - run.startedAt : endedAt - run.startedAt;
     const generationMs = run.firstTokenAt ? endedAt - run.firstTokenAt : 0;
     const completionTokens = run.usage?.completion_tokens ?? estimateTokens('x'.repeat(run.contentChars));
-    const tokensPerSec = generationMs > 0 ? completionTokens / (generationMs / 1000) : 0;
+    // 极端情况下（首字与结束同毫秒）generationMs 会是 0 → 退回整段耗时，
+    // 否则吐字速度会显示 0.0，给用户「没跑起来」的错觉。
+    const effectiveMs = generationMs > 0 ? generationMs : Math.max(1, endedAt - run.startedAt);
+    const tokensPerSec = completionTokens / (effectiveMs / 1000);
+    const usage = run.usage;
+
+    // 阶段五 P2 · v2 明细优先、老网关回落旧字段（字段缺失时前端自己兜底）
+    const baseComputeUsd =
+      usage?.p_compute_usd ??
+      usage?.base_compute_usd ??
+      (usage ? Math.max(0, usage.cost_usd - (usage.creator_royalty_usd ?? 0)) : 0);
+    const royaltyPoolUsd = usage?.p_royalty_usd ?? usage?.creator_royalty_usd ?? 0;
+    const creatorShareUsd = usage?.creator_share_usd ?? usage?.creator_royalty_usd ?? 0;
+    const nodeShareUsd = usage?.node_share_usd ?? usage?.node_earn_usd ?? 0;
+    const platformTotalUsd = usage?.platform_total_usd ?? usage?.platform_fee_usd ?? 0;
 
     setMessages((prev) =>
       prev.map((m) =>
@@ -448,22 +549,25 @@ for await (const chunk of stream) {
           ? {
               ...m,
               reasoningEndedAt: run.reasoningStartedAt ? endedAt : undefined,
+              answerSource: usage?.answer_source ?? m.answerSource,
               stats: {
                 ttftMs,
                 tokensPerSec,
-                costUsd: run.usage?.cost_usd ?? 0,
-                cgas: run.usage?.cgas ?? 0,
-                promptTokens: run.usage?.prompt_tokens ?? 0,
+                costUsd: usage?.cost_usd ?? 0,
+                cgas: usage?.cgas ?? 0,
+                promptTokens: usage?.prompt_tokens ?? 0,
                 completionTokens,
+                totalTokens:
+                  usage?.total_tokens ?? (usage?.prompt_tokens ?? 0) + completionTokens,
                 // 费用拆解：后端直接下发算力基价；老网关没这个字段时用「实付 - 版税」反推
-                baseComputeUsd:
-                  run.usage?.base_compute_usd ??
-                  (run.usage
-                    ? Math.max(0, run.usage.cost_usd - (run.usage.creator_royalty_usd ?? 0))
-                    : 0),
-                nodeEarnUsd: run.usage?.node_earn_usd ?? 0,
-                creatorRoyaltyUsd: run.usage?.creator_royalty_usd ?? 0,
-                platformFeeUsd: run.usage?.platform_fee_usd ?? 0,
+                baseComputeUsd,
+                nodeEarnUsd: nodeShareUsd,
+                creatorRoyaltyUsd: creatorShareUsd,
+                platformFeeUsd: platformTotalUsd,
+                royaltyPoolUsd,
+                creatorShareUsd,
+                platformTotalUsd,
+                answerSource: usage?.answer_source ?? m.answerSource,
               },
             }
           : m,
@@ -506,6 +610,12 @@ for await (const chunk of stream) {
       topP,
       maxTokens,
       systemPrompt,
+      // 阶段五 P2 · D8：响应头 X-APIPaw-Dispatch 到达即知来源 → 立刻点亮徽标
+      onDispatch: (mode) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === botId ? { ...m, answerSource: mode } : m)),
+        );
+      },
       onReasoning: (delta) => {
         const run = runRef.current;
         if (!run.firstTokenAt) run.firstTokenAt = Date.now();
@@ -555,6 +665,46 @@ for await (const chunk of stream) {
   };
 
   const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
+
+  // ----------------- 阶段五 P2 · D9：流式性能实时刷新 -----------------
+  // TTFT 与 tok/s 都是**前端本地计时**：请求发出 → 第一个有效 delta 为 TTFT，
+  // 之后按已产出字符估算流式 tok/s，随流推进实时跳动（流结束后由后端 usage 校准）。
+  useEffect(() => {
+    if (!streaming) return;
+    const run = runRef.current;
+    const now = Date.now();
+    const ttftMs = run.firstTokenAt ? run.firstTokenAt - run.startedAt : now - run.startedAt;
+    const genMs = run.firstTokenAt ? now - run.firstTokenAt : 0;
+    const completionTokens = estimateTokens('x'.repeat(run.contentChars));
+    const tokensPerSec = genMs > 0 ? completionTokens / (genMs / 1000) : 0;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === lastMessageId && (!m.stats || m.stats.partial)
+          ? {
+              ...m,
+              stats: {
+                ttftMs,
+                tokensPerSec,
+                costUsd: 0,
+                cgas: 0,
+                promptTokens: 0,
+                completionTokens,
+                totalTokens: completionTokens,
+                baseComputeUsd: 0,
+                nodeEarnUsd: 0,
+                creatorRoyaltyUsd: 0,
+                platformFeeUsd: 0,
+                royaltyPoolUsd: 0,
+                creatorShareUsd: 0,
+                platformTotalUsd: 0,
+                partial: true,
+              },
+            }
+          : m,
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, streaming, lastMessageId]);
 
   return (
     <View style={styles.card} testID="playground-card" id="apx-glass-playground">
@@ -766,14 +916,39 @@ for await (const chunk of stream) {
                   ? Date.now() - message.reasoningStartedAt
                   : 0;
 
+            const sourceMeta = sourceMetaOf(message.answerSource);
+
             return (
               <View key={message.id} style={styles.assistantBlock}>
+                {sourceMeta ? (
+                  <View style={styles.answerSourceRow}>
+                    <View
+                      style={[
+                        styles.sourceBadge,
+                        { borderColor: `${sourceMeta.color}66`, backgroundColor: `${sourceMeta.color}14` },
+                      ]}
+                      testID="playground-answer-source"
+                    >
+                      <Text style={[styles.sourceBadgeText, { color: sourceMeta.color }]}>
+                        {sourceMeta.label}
+                      </Text>
+                    </View>
+                    <Text style={styles.answerSourceHint}>
+                      {sourceMeta.label === '真实节点'
+                        ? '由去中心化节点实际推理产生'
+                        : '由平台模拟生成，未经过真实节点'}
+                    </Text>
+                  </View>
+                ) : null}
+
                 {message.reasoning ? (
                   <ReasoningCard
                     text={message.reasoning}
                     live={isLive && !message.content}
                     elapsedMs={elapsed}
                     onToggle={() => undefined}
+                    sourceLabel={sourceMeta?.label}
+                    sourceColor={sourceMeta?.color}
                   />
                 ) : null}
 
@@ -1125,6 +1300,32 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 2,
   },
   reasonHeaderLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: spacing.sm },
+  reasonHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  reasonCopyBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.cardAlt,
+  },
+  reasonCopyText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '700' },
+  // 阶段五 P2 · D8：来源徽标
+  sourceBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  sourceBadgeText: { fontSize: fontSize.xs, fontWeight: '700' },
+  answerSourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  answerSourceHint: { color: colors.textMuted, fontSize: fontSize.xs, flexShrink: 1 },
+
   reasonIcon: { fontSize: fontSize.md },
   reasonTitle: { color: colors.purple, fontSize: fontSize.md, fontWeight: '700', flexShrink: 1 },
   reasonTitleLive: { color: colors.warn },
@@ -1150,6 +1351,15 @@ const styles = StyleSheet.create({
   statLabel: { color: colors.textSecondary, fontSize: fontSize.xs, marginBottom: 3 },
   statValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
   statValueAccent: { color: colors.accent },
+
+  // 阶段五 P2 · D9：TTFT / 吐字速度 / 总 token 三块 StatTile
+  statTilesRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  statTileWrap: { flex: 1 },
+  breakdownTotal: {
+    color: colors.textPrimary,
+    fontWeight: '700',
+    marginTop: 3,
+  },
 
   // 阶段五 P0 · 费用拆解行
   breakdownRow: {
