@@ -559,6 +559,64 @@ APIPAW_NODE_MAX_INFLIGHT=1
 
 **未做（留给 P1 及以后）**：`settle_cost_v2` / `revenue_ledger` 建表 / 影子账 —— 属模块 A 的 P1，**P0 不碰生产计费口径**。
 
+### 5.2 P1 交付记录（2026-11-11 ~ 2026-11-12）
+
+**已落地的代码改动**：
+
+| 模块 | 改动 | 文件 |
+|---|---|---|
+| A（二元分账底座与影子对账） | `migrate_phase5_billing_split()`（幂等迁移：`models` 补 `royalty_rate`/`royalty_mode`；`usage_logs` 补 7 个分账明细列；新建 `revenue_ledger` + `request_id` **唯一索引 = 幂等键**）；`settle_cost_v2()`（决策 D1 目标口径：场景 A 85/15，场景 B 算力 85/15 + 版税池**再切一次** 85/15 → 创作者 12.75% / 平台 17.25%，买家实付仍是 `1.15 × base`）；影子模式：`finalize_usage_atomic` 在**同一个 `BEGIN IMMEDIATE` 事务内**写明细列 + `revenue_ledger`；**既有列一律保持 v1 原值**（`node_earn_usd` / `creator_royalty_usd` / `platform_fee_usd` 不被覆盖） | `D:\APIPawCloud\db.py`、`server.py` |
+| B（盲派单 v2 与硬件门槛） | 派单帧下发 `model_ref`（进程内随机盐加盐散列 → 重启即变）/ `capability_class`（C0~C3 粗分档，只给档位不给绝对显存）/ `protocol_version=2`；过渡期**双发** `payload.model`（线上 Agent 尚未支持 v2 解析）；`_select_dispatch_node(min_vram_gb=...)` 补齐硬件门槛，**fail-open**：没上报显存的节点一律保留，只认 `vram_total_gb`（或 `used+free`），**不认** `max_vram_gb` | `D:\APIPawCloud\server.py`、`DISPATCH_PROTOCOL.md` §3.4/§4.2/§6.2 |
+| C（Playground P1） | `/v1/models` 补 `scenario` / `royalty_rate` / `royalty_mode`；前端场景徽标 + 模型下拉逐项场景标签 + 「本次预计花费」实时估算（场景 B 总价 = 算力费 × 1.15，场景 A 不计版税）+ 切换模型保留会话与参数状态 | `D:\APIPawCloud\server.py`、`D:\APIPawPocket\src\api\cloudClient.ts`、`src\components\PlaygroundCard.tsx` |
+
+**开关**（P1 两个开关**已开**，其余保持 P0 默认）：
+
+```
+APIPAW_BILLING_SPLIT_V2=1      # A：影子分账（只写不算，买家扣费口径零变化）
+APIPAW_NODE_BLIND_DISPATCH=1  # B：盲派单 v2（双发 model，向后兼容）
+APIPAW_DISPATCH_ENABLED=1     # 既有：真实节点派单
+```
+
+**回归结果**：
+
+| 套件 | 结果 |
+|---|---|
+| `D:\APIPawCloud\test_phase5_p1.py` | **32/32 通过**（迁移幂等 / 场景 A·B 口径 / 守恒 I6 / v1≡v2 逐笔 40 笔 diff=0 / 无节点折叠 / 幂等 / 显存门槛 fail-open / `model_ref` 与 `capability_class`） |
+| `D:\APIPawCloud\test_phase5_p0.py` | **25/25 通过**（P0 未回归） |
+| `D:\APIPawCloud\test_dispatch.py` | **37/37 通过** |
+| `D:\APIPawPocket\e2e\playground-models.cjs` | **18/18 通过**（hermetic：场景徽标 / 下拉标签 / 版税 15% / 切换保留状态 / 预计花费 = 算力 × 1.15） |
+| `D:\APIPawPocket\e2e\playground-params.cjs` | **23/23 通过**（P0 参数面板未回归） |
+
+**生产部署与验收（2026-11-11 ~ 2026-11-12）**：
+
+| 步骤 | 动作 | 结果 |
+|---|---|---|
+| 备份 | DB：`/opt/apipaw-backups/db/apipaw_20261111-173623-pre-p5p1.db` + `node_registry_20261111-173623-pre-p5p1.db`（`.backup` 快照 + `integrity_check`）；Web：`/var/www/apipaw-console-bak-20261111-173823` + `apipaw-pocket-bak-20261111-173823` | 已留档 |
+| 后端部署 | 新 `server.py`（md5 `26eed755…`）+ `db.py`（md5 `8d8d33c6…`）→ `py_compile`（3.6.8）→ `systemctl restart apipaw-cloud` | `active`；启动日志「阶段五 P1 分账底座就绪」 |
+| 迁移落地 | `models` +2 列 / `usage_logs` +7 列 / `revenue_ledger` 建表 + `idx_revenue_ledger_request` 唯一索引 | 存量行数不变（`usage_logs=27`），`integrity_check=ok` |
+| 开关 | systemd 环境变量追加 `APIPAW_BILLING_SPLIT_V2=1` `APIPAW_NODE_BLIND_DISPATCH=1` | `systemctl show` 已确认 |
+| 前端部署 | `expo export -p web`（产物 `index-17cfe767….js`）→ 同步覆盖 `/var/www/apipaw-console` 与 `/var/www/apipaw-pocket` → `nginx -t` → **只 reload** | 两站点根一致；两域名 200；线上 bundle 内含 `playground-scenario-badge` / `playground-cost-preview-*` 新 testID |
+| 生产冒烟 | `smoke_p5_p1_prod.py`（现场签发一次性买家 Key，跑完删净） | **53/53 通过**：场景元数据 / 场景 B `cost = base×1.15` / 明细列按 v2 落库 / **旧列仍为 v1 原值** / `revenue_ledger` 一行且自身守恒 / 场景 A 无版税 / 幂等不重复扣费 / NET==BAL / 冻结结清 |
+| 基线复原 | 冒烟 + 线上 e2e 后重新采样 | `users=1`、`api_keys=2`、`usage_logs=27`、`balance_ledger=40`、`daily_spend=6`、`revenue_ledger=0`、`models=5`、`bal=net=1016.037562`、`integrity_check=ok` —— **与跑前逐项一致** |
+| 线上前端探针 | Playwright 打线上 `console.apipaw.com`（买家 Key） | **10/10 通过**：徽标「场景A · 开源基础」/ 下拉 5 个模型全带场景标签 / 场景 B 带「版税 15%」/ 预计花费随输入变化 / 无 JS 错误 |
+| 线上全链路 e2e | `e2e/live-console.cjs` | 19/24 —— 5 项失败均为**业主/创作者端点 403**（本次用的是**买家**临时 Key，无 OWNER 角色），与 P1 无关；P0 时用 OWNER Key 是 24/24 |
+| 归档 | GitHub：`apipaw-cloud` `5a14c8d`；`apipaw-pocket` `ed58441`；源站镜像 `c769a06`（+ 冒烟脚本 `faa370d`） | 已推送 |
+
+**P1 踩过的坑**：
+
+1. **`run_in_executor()` 不接受关键字参数** —— `finalize_usage_atomic(..., split=...)` 直接 `TypeError`
+   把整笔结算打回（`usage_logs` 都不会落库）。必须用 `functools.partial` 绑定。
+2. **键名对不齐会静默变成 0** —— `settle_cost_v2` 返回 `node_share_usd`，若 db.py 读
+   `split.get("node_compute_share_usd")`，节点分成列恒为 0、守恒校验必挂。两端统一用 `node_share_usd`。
+3. **别在影子模式里覆盖旧列** —— 早期版本把 v2 的值写回 `node_earn_usd` / `creator_royalty_usd` /
+   `platform_fee_usd`，等于「打开影子开关就改了历史口径」。现在旧列只取调用方给的 v1 值。
+4. **清理脚本的列名各表不同** —— 买家侧三张表用 `api_key` 存账户句柄，`revenue_ledger` 用
+   `account_handle`；写错会抛 `no such column`，**清理中断 = 测试痕迹留在生产库**。
+5. **响应里的金额是 6 位小数展示值** —— 断言 `usage.cost_usd == usage_logs.cost_usd` 要留 1e-6 容差，
+   不是 1e-9。
+6. **网关对场景 A 也下发 `royalty_rate=0.15`**（列默认值）—— 前端必须**按场景判定**是否计版税，
+   否则场景 A 的预计花费被凭空放大 15%。
+
 ---
 
 ## 6. 不变量与回归红线
