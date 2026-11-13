@@ -732,6 +732,21 @@ APIPAW_COMPUTE_CLASS_PRICE_C0..C3  # B：等级单价表（USD / 1k tokens），
 | `D:\APIPawPocket\e2e\playground-params.cjs` / `playground-models.cjs` / `playground-perf.cjs` / `limit-sync.cjs` | **23/23 / 18/18 / 19/19 / 8/8 通过**（前端未回归） |
 | `npx tsc --noEmit` | **0 错** |
 
+**生产部署与验收（2026-11-13）**：
+
+| 步骤 | 动作 | 结果 |
+|---|---|---|
+| 备份 | `deploy_backup.sh p5-p3`：DB（`apipaw` + `node_registry` 的 `.backup` 快照）+ 后端源码 + **两个站点根** tar.gz | 已留档 `/opt/apipaw-backups/{db,code,web}` |
+| 后端部署 | `server.py` + `db.py` + `smoke_p5_p3_prod.py` → `py_compile`（源站 **Python 3.6.8**）→ `systemctl restart apipaw-cloud` | `active`；`/health` → `{"status":"ok"}` |
+| 字节级校验 | 源站文件的 `git hash-object` 与 GitHub `f70d9a0` 的 blob **逐一相等** | `ab44805c…` / `db29c01a…` / `439fd85c…` 三项全等 ⇒ 线上跑的就是已推仓库的那份字节 |
+| 开关 | systemd 单元**显式**写入 `APIPAW_COMPUTE_CLASS_PRICING=0`（定价级变更，签字前保持关）+ `APIPAW_COMPUTE_CLASS_PRICE_C0..C3` | `systemctl cat` 已确认；其余 P0~P2 开关原样不动 |
+| 前端部署 | `expo export -p web` 产物与线上**已部署** bundle 同哈希（`index-84178333….js`）⇒ 无需再动站点根（避免 `tar \| ssh` + `sudo -S` 的历史事故） | `console.apipaw.com` / `pocket.apipaw.com` 均 200 |
+| 生产冒烟 | `smoke_p5_p3_prod.py`（现场签发一次性买家 Key，跑完删净） | **36/36 通过**：A1~A11 模型级版税率闭环（403/400/快照/流水/I6/回滚）/ B1~B5 等级单价与安全上限 / 三方分配额对照表 |
+| 显存链路探针 | 对**线上正在跑的那份** `server.py` 抽函数单独 exec（不 import，避免与线上服务抢库） | v1.0.5 帧 → `vram_total_gb/used/free` + `gpu_temp_c` 全部提取到位；v1.0.4 帧 → 元数据保持干净（无 `vram_*`） |
+| 基线复原 | 冒烟后重新采样 | `users=1`、`api_keys=2`、`usage_logs=27`、`balance_ledger=40`、`daily_spend=6`、`revenue_ledger=0`、`models=5`、`model_pricing_changes=0`、`bal=net=1016.037562`、`integrity_check=ok` —— **与跑前逐项一致** |
+| 线上接口抽查 | `GET /v1/models` 5 个模型全部下发 `royalty_rate=0.15`；`POST/GET /api/v1/models/{id}/royalty`（+`/history`）路由在线（未带 Key → 401） | 买家价格与 P2 逐位相同（**I5 未破**） |
+| 归档 | GitHub：`apipaw-cloud` `f70d9a0`；`apipaw-pocket` `9d02a96`；`apipaw-agent` `df2f43f` + tag `v1.0.5` + Release（含 `APIPaw-Agent-v1.0.5-Windows.zip`）；源站镜像 `d84f254` | 已推送 |
+
 **⚠️ 三方分配额签字表（开关打开前必须签字）** —— 模型 `qwen-2.5-72b`，2000 prompt + 1000 completion token：
 
 | 等级 | 算力基价 | 节点 | 创作者 | 平台合计 | 买家实付 | 截断 |
