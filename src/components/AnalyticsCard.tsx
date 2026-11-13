@@ -249,6 +249,84 @@ const TierDonut: React.FC<TierDonutProps> = ({ tiers, size = 132 }) => {
   );
 };
 
+// ----------------- 阶段五 P3 · 二元费用结构占比环 -----------------
+
+interface SplitRingProps {
+  split?: AnalyticsResponse['split'];
+  size?: number;
+}
+
+/**
+ * 「基础算力费 vs 版税池（创作者 + 平台）」的**二元费用结构**环 + 占比条。
+ *
+ * 数值**全部取后端下发的 split 聚合**（基础算力费由「总额 − 版税池」反推，
+ * 新旧行同口径），前端不自行推算 —— 与账单小票同一原则。
+ */
+const SplitRing: React.FC<SplitRingProps> = ({ split, size = 132 }) => {
+  const thickness = 18;
+  const outerR = size / 2;
+  const innerR = outerR - thickness;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const base = Number(split?.base_compute_usd ?? 0);
+  const royalty = Number(split?.royalty_pool_usd ?? 0);
+  const total = base + royalty;
+
+  const baseRatio = total > 0 ? base / total : 0;
+  const royaltyRatio = total > 0 ? royalty / total : 0;
+
+  const segments = useMemo(() => {
+    if (total <= 0) return [];
+    const gap = 2;
+    const sweepBase = baseRatio * 360;
+    const out: Array<{ key: string; path: string }> = [];
+    if (sweepBase > 0) {
+      out.push({
+        key: 'base',
+        path: donutSegment(cx, cy, outerR, innerR, gap / 2, Math.max(gap / 2 + 0.5, sweepBase - gap / 2)),
+      });
+    }
+    if (royaltyRatio > 0) {
+      const start = sweepBase + gap / 2;
+      const end = 360 - gap / 2;
+      if (end > start) {
+        out.push({ key: 'royalty', path: donutSegment(cx, cy, outerR, innerR, start, end) });
+      }
+    }
+    return out;
+  }, [total, baseRatio, royaltyRatio, cx, cy, outerR, innerR]);
+
+  return (
+    <View style={styles.donutWrap} testID="analytics-split-ring">
+      <Svg width={size} height={size}>
+        {total <= 0 ? (
+          <Circle
+            cx={cx}
+            cy={cy}
+            r={(outerR + innerR) / 2}
+            stroke={colors.divider}
+            strokeWidth={thickness}
+            fill="none"
+          />
+        ) : (
+          segments.map((segment) => (
+            <Path
+              key={segment.key}
+              d={segment.path}
+              fill={segment.key === 'base' ? colors.chartBase : colors.chartCreator}
+            />
+          ))
+        )}
+      </Svg>
+      <View style={styles.donutCenter} pointerEvents="none">
+        <Text style={styles.donutValue}>${total.toFixed(4)}</Text>
+        <Text style={styles.donutLabel}>24h 买家实付</Text>
+      </View>
+    </View>
+  );
+};
+
 // ----------------- 可视化限额滑块 -----------------
 
 interface LimitSliderProps {
@@ -367,6 +445,14 @@ const AnalyticsCard: React.FC = () => {
 
   const tiers = data?.tiers ?? [];
   const totals = data?.totals;
+
+  // 阶段五 P3 · 二元费用结构：基础算力费 vs 版税池（创作者 + 平台）。
+  // 老网关不下发 split ⇒ 回落成「全算是算力费」，绝不显示 0/0 的坏数据。
+  const splitBase = Number(data?.split?.base_compute_usd ?? 0);
+  const splitRoyalty = Number(data?.split?.royalty_pool_usd ?? 0);
+  const splitTotal = splitBase + splitRoyalty;
+  const splitBaseRatio = splitTotal > 0 ? splitBase / splitTotal : 0;
+  const splitRoyaltyRatio = splitTotal > 0 ? splitRoyalty / splitTotal : 0;
 
   return (
     <View style={styles.card} testID="analytics-card" id="apx-glass-analytics">
@@ -495,6 +581,84 @@ const AnalyticsCard: React.FC = () => {
                   <Text style={styles.settlementLabel}>平台服务费 15%</Text>
                   <Text style={styles.settlementValue}>
                     ${data.settlement.platform_fee_usd.toFixed(4)}
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* 阶段五 P3 · 二元费用结构（基础算力费 vs 版税/平台费） */}
+          <View style={styles.section} testID="analytics-split-section">
+            <Text style={styles.sectionTitle}>费用结构 · 基础算力费 vs 版税</Text>
+            <View style={styles.donutRow}>
+              <SplitRing split={data?.split} />
+              <View style={styles.tierList}>
+                <View style={styles.tierItem} testID="analytics-split-base-item">
+                  <View style={styles.tierItemHeader}>
+                    <View style={[styles.legendDot, { backgroundColor: colors.chartBase }]} />
+                    <Text style={styles.tierName}>基础算力费</Text>
+                  </View>
+                  <View style={styles.tierBarTrack}>
+                    <View
+                      style={[
+                        styles.tierBarFill,
+                        {
+                          width: `${Math.max(2, (splitBaseRatio ?? 0) * 100)}%`,
+                          backgroundColor: colors.chartBase,
+                        },
+                      ]}
+                      testID="analytics-split-bar-base"
+                    />
+                  </View>
+                  <Text style={styles.tierMeta} testID="analytics-split-base">
+                    {((splitBaseRatio ?? 0) * 100).toFixed(1)}% · $
+                    {(splitBase ?? 0).toFixed(4)}
+                  </Text>
+                </View>
+                <View style={styles.tierItem} testID="analytics-split-royalty-item">
+                  <View style={styles.tierItemHeader}>
+                    <View style={[styles.legendDot, { backgroundColor: colors.chartCreator }]} />
+                    <Text style={styles.tierName}>版税池（创作者 + 平台）</Text>
+                  </View>
+                  <View style={styles.tierBarTrack}>
+                    <View
+                      style={[
+                        styles.tierBarFill,
+                        {
+                          width: `${Math.max(2, (splitRoyaltyRatio ?? 0) * 100)}%`,
+                          backgroundColor: colors.chartCreator,
+                        },
+                      ]}
+                      testID="analytics-split-bar-royalty"
+                    />
+                  </View>
+                  <Text style={styles.tierMeta} testID="analytics-split-royalty">
+                    {((splitRoyaltyRatio ?? 0) * 100).toFixed(1)}% · $
+                    {(splitRoyalty ?? 0).toFixed(4)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {data?.split && (
+              <View style={styles.settlementBox} testID="analytics-split-legend">
+                <Text style={styles.settlementTitle}>三方分账 (24h · v2 权威口径)</Text>
+                <View style={styles.settlementRow}>
+                  <Text style={styles.settlementLabel}>节点分成</Text>
+                  <Text style={styles.settlementValue} testID="analytics-split-node">
+                    ${(data.split.node_share_usd ?? 0).toFixed(4)}
+                  </Text>
+                </View>
+                <View style={styles.settlementRow}>
+                  <Text style={styles.settlementLabel}>创作者版税（85% 版税池）</Text>
+                  <Text style={[styles.settlementValue, styles.settlementValueCreator]} testID="analytics-split-creator">
+                    ${(data.split.creator_share_usd ?? 0).toFixed(4)}
+                  </Text>
+                </View>
+                <View style={styles.settlementRow}>
+                  <Text style={styles.settlementLabel}>平台合计</Text>
+                  <Text style={styles.settlementValue} testID="analytics-split-platform">
+                    ${(data.split.platform_total_usd ?? 0).toFixed(4)}
                   </Text>
                 </View>
               </View>

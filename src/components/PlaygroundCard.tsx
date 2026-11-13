@@ -16,6 +16,7 @@ import {
   CLOUD_BASE_URL,
   ModelInfo,
   StreamChatHandle,
+  chatOnce,
   describeCloudError,
   fetchModels,
   streamChat,
@@ -307,6 +308,8 @@ const PlaygroundCard: React.FC = () => {
   const [topP, setTopP] = useState(0.9);
   const [maxTokens, setMaxTokens] = useState(1024);
   const [systemPrompt, setSystemPrompt] = useState('');
+  // 阶段五 P3 · 流式开关：默认开（保持既有行为），关掉走非流式一次性请求。
+  const [streamEnabled, setStreamEnabled] = useState(true);
 
   const streamRef = useRef<StreamChatHandle | null>(null);
   const runRef = useRef({
@@ -435,19 +438,23 @@ const PlaygroundCard: React.FC = () => {
   const codeSnippets = useMemo(() => {
     const model = selectedModelId;
     // 阶段五 P0：导出代码必须与界面上的实际参数一致，否则用户复制出去就跑偏
+    // 阶段五 P3：再往前推一步 —— 导出的是**当前实时状态**：
+    //   当前输入框内容（有输入用输入框，没输入才回落到上一条已发送的消息）、
+    //   当前模型、四个采样参数、System Prompt、以及**流式开关**。
     const system = systemPrompt.trim();
+    const prompt = input.trim() || lastPrompt;
     const exportMessages = system
       ? [
           { role: 'system', content: system },
-          { role: 'user', content: lastPrompt },
+          { role: 'user', content: prompt },
         ]
-      : [{ role: 'user', content: lastPrompt }];
+      : [{ role: 'user', content: prompt }];
 
     const payload = JSON.stringify(
       {
         model,
         messages: exportMessages,
-        stream: true,
+        stream: streamEnabled,
         temperature,
         top_p: topP,
         max_tokens: maxTokens,
@@ -457,12 +464,20 @@ const PlaygroundCard: React.FC = () => {
     );
     const base = `${CLOUD_BASE_URL}/v1`;
 
-    const curl = `curl -N ${base}/chat/completions \\
+    // 流式开关关闭时，示例代码也必须**一次性返回** —— 复制出去跑出来的行为
+    // 与界面上看到的一致（否则用户会拿到一段会打印半截就结束的示例）。
+    const curl = streamEnabled
+      ? `curl -N ${base}/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer $APIPAW_API_KEY" \\
+  -d '${payload.replace(/\n\s*/g, ' ')}'`
+      : `curl ${base}/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer $APIPAW_API_KEY" \\
   -d '${payload.replace(/\n\s*/g, ' ')}'`;
 
-    const python = `from openai import OpenAI
+    const python = streamEnabled
+      ? `from openai import OpenAI
 
 client = OpenAI(
     base_url="${base}",
@@ -484,9 +499,27 @@ for chunk in stream:
     if delta.reasoning_content:
         print(delta.reasoning_content, end="", flush=True)
     if delta.content:
-        print(delta.content, end="", flush=True)`;
+        print(delta.content, end="", flush=True)`
+      : `from openai import OpenAI
 
-    const javascript = `import OpenAI from "openai";
+client = OpenAI(
+    base_url="${base}",
+    api_key="paw-sk-xxxxxx",  # 你的 APIPaw API Key
+)
+
+response = client.chat.completions.create(
+    model="${model}",
+    messages=${JSON.stringify(exportMessages, null, 4).replace(/\n/g, '\n    ')},
+    stream=False,
+    temperature=${temperature},
+    top_p=${topP},
+    max_tokens=${maxTokens},
+)
+
+print(response.choices[0].message.content)`;
+
+    const javascript = streamEnabled
+      ? `import OpenAI from "openai";
 
 const client = new OpenAI({
   baseURL: "${base}",
@@ -506,10 +539,27 @@ for await (const chunk of stream) {
   const delta = chunk.choices[0]?.delta;
   if (delta?.reasoning_content) process.stdout.write(delta.reasoning_content);
   if (delta?.content) process.stdout.write(delta.content);
-}`;
+}`
+      : `import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "${base}",
+  apiKey: process.env.APIPAW_API_KEY,
+});
+
+const response = await client.chat.completions.create({
+  model: "${model}",
+  messages: ${JSON.stringify(exportMessages, null, 2).replace(/\n/g, '\n  ')},
+  stream: false,
+  temperature: ${temperature},
+  top_p: ${topP},
+  max_tokens: ${maxTokens},
+});
+
+console.log(response.choices[0].message.content);`;
 
     return { curl, python, javascript } as Record<ExporterTab, string>;
-  }, [selectedModelId, lastPrompt, temperature, topP, maxTokens, systemPrompt]);
+  }, [selectedModelId, lastPrompt, input, temperature, topP, maxTokens, systemPrompt, streamEnabled]);
 
   const handleCopy = useCallback(async () => {
     const ok = await copyToClipboard(codeSnippets[exporterTab]);
@@ -602,6 +652,39 @@ for await (const chunk of stream) {
       usage: null,
     };
 
+    if (!streamEnabled) {
+      // 阶段五 P3 · 流式开关关闭 → 走**非流式**一次性请求。
+      // 导出代码里的 stream 也是 false ⇒ 界面与复制出去的代码行为一致。
+      chatOnce({
+        model: selectedModelId,
+        messages: [...history, { role: 'user', content: text }],
+        temperature,
+        topP,
+        maxTokens,
+        systemPrompt,
+      })
+        .then((res) => {
+          const run = runRef.current;
+          run.firstTokenAt = Date.now();
+          run.contentChars = res.content.length;
+          run.usage = res.usage;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botId ? { ...m, content: res.content, reasoning: res.reasoning } : m,
+            ),
+          );
+          finalizeRun(botId);
+        })
+        .catch((e) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === botId ? { ...m, error: describeCloudError(e) } : m)),
+          );
+          setStreaming(false);
+          streamRef.current = null;
+        });
+      return;
+    }
+
     const handle = streamChat({
       model: selectedModelId,
       messages: [...history, { role: 'user', content: text }],
@@ -656,7 +739,7 @@ for await (const chunk of stream) {
     });
 
     streamRef.current = handle;
-  }, [input, messages, streaming, selectedModelId, temperature, topP, maxTokens, systemPrompt]);
+  }, [input, messages, streaming, selectedModelId, temperature, topP, maxTokens, systemPrompt, streamEnabled]);
 
   const handleStop = () => {
     streamRef.current?.abort();
@@ -718,6 +801,7 @@ for await (const chunk of stream) {
           id="apx-glow-export"
           onPress={() => setExporterOpen(true)}
           activeOpacity={0.75}
+          testID="playground-export-open"
         >
           <Text style={styles.exportBtnText}>导出代码</Text>
         </TouchableOpacity>
@@ -872,6 +956,21 @@ for await (const chunk of stream) {
             multiline
             testID="pg-system-input"
           />
+          {/* 阶段五 P3 · 流式开关 —— 关掉后走**非流式**一次性请求，
+              导出代码里的 stream 也随之变成 false（复制出去就能跑出同样结果）。 */}
+          <TouchableOpacity
+            style={styles.streamRow}
+            onPress={() => setStreamEnabled((v) => !v)}
+            activeOpacity={0.75}
+            testID="pg-stream-toggle"
+          >
+            <View style={[styles.streamBox, streamEnabled && styles.streamBoxOn]}>
+              <Text style={[styles.streamBoxText, streamEnabled && styles.streamBoxTextOn]}>
+                {streamEnabled ? '✓' : ''}
+              </Text>
+            </View>
+            <Text style={styles.paramsLabel}>流式输出（关闭则一次性返回）</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -1059,7 +1158,7 @@ for await (const chunk of stream) {
           <View style={styles.exporterSheet}>
             <View style={styles.exporterHeader}>
               <Text style={styles.modalTitle}>一键代码导出器</Text>
-              <TouchableOpacity onPress={() => setExporterOpen(false)}>
+              <TouchableOpacity onPress={() => setExporterOpen(false)} testID="playground-export-close">
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -1075,7 +1174,13 @@ for await (const chunk of stream) {
                 <TouchableOpacity
                   key={tab.key}
                   style={[styles.tab, exporterTab === tab.key && styles.tabActive]}
-                  onPress={() => setExporterTab(tab.key)}
+                  onPress={() => {
+                    setExporterTab(tab.key);
+                    // 切 tab 时清掉"已复制"提示 —— 否则会把上一段代码的复制反馈
+                    // 错认成当前这段（这正是"状态化"最容易被抓到的小 bug）。
+                    setCopied(false);
+                  }}
+                  testID={`playground-export-tab-${tab.key}`}
                 >
                   <Text style={[styles.tabText, exporterTab === tab.key && styles.tabTextActive]}>
                     {tab.label}
@@ -1085,11 +1190,15 @@ for await (const chunk of stream) {
             </View>
 
             <ScrollView style={styles.codeScroll} contentContainerStyle={styles.codeContent}>
-              <Text style={styles.codeText}>{codeSnippets[exporterTab]}</Text>
+              <Text style={styles.codeText} testID="playground-export-code">
+                {codeSnippets[exporterTab]}
+              </Text>
             </ScrollView>
 
-            <TouchableOpacity style={styles.copyBtn} onPress={handleCopy}>
-              <Text style={styles.copyBtnText}>{copied ? '✓ 已复制到剪贴板' : '📋 一键复制'}</Text>
+            <TouchableOpacity style={styles.copyBtn} onPress={handleCopy} testID="playground-export-copy">
+              <Text style={styles.copyBtnText} testID="playground-export-copy-state">
+                {copied ? '✓ 已复制到剪贴板' : '📋 一键复制'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1396,6 +1505,25 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   paramsLabel: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
+  // 阶段五 P3 · 流式开关
+  streamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  streamBox: {
+    width: 20,
+    height: 20,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  streamBoxOn: { borderColor: colors.accent, backgroundColor: `${colors.accent}22` },
+  streamBoxText: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '700' },
+  streamBoxTextOn: { color: colors.accent },
   systemInput: {
     minHeight: 64,
     maxHeight: 140,

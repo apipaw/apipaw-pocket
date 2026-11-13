@@ -461,7 +461,7 @@ SUM(balance_ledger.direction × amount_usd) == SUM(users.balance_usd)
   ⚠️ 注意"流式时序断言不可靠"（`route.fulfill` 一次性返回全量，e2e 只能断言数值存在，不能断言时序）；
 - **性能读数展示**：`StatTile` × 3（TTFT / Tokens/s / 总 token）。
 
-### 4.5 P3 · 代码导出与账单区拆解
+### 4.5 P3 · 代码导出与账单区拆解 ✅ 已完成（2026-11-13）
 
 - **代码导出**：已有 curl/python/js 三 tab（`PlaygroundCard.tsx:245-308`），
   改成**从当前状态生成**（模型 + 四参数 + system + 流式开关），并显示"复制成功"反馈；
@@ -500,7 +500,7 @@ SUM(balance_ledger.direction × amount_usd) == SUM(users.balance_usd)
 | **P0**<br>✅ 已完成 | 口径冻结 + 蓝图评审 + `PAWMODEL_SPEC`/`DISPATCH_PROTOCOL` 同步 | 候选池**公平排序**（最久未派单优先）+ 让退 30s 冷却 + `SETTLEMENT_RECEIPT` 瘦身 | 参数面板 + 费用拆解 + `e2e/playground-params.cjs` | 买家价格零变化；沙箱矩阵全绿 |
 | **P1** | `settle_cost_v2` + `usage_logs` 新列 + `revenue_ledger` 建表 + `migrate_phase5_billing_split()`（**影子模式**：v2 只算不扣） | `model_ref` 不透明派单（协议 v2，向后兼容）+ `capability_class` 门槛 + 并发上限 | 多模型切换 + 场景徽标 + 预估花费 | 影子账与 v1 账**逐笔相等**（容差 1e-9） |
 | **P2**<br>✅ 已完成 | v2 口径**切正**（开关翻正）+ 分账流水写正 + 提现口径切换 + analytics 聚合改口径 | `reliability_score` 降权 + 派单决策元数据落库 + 公平性告警 | CoT 卡片增强 + TTFT/吞吐读数 + 账单小票 | 守恒不变式全绿；买家侧账单无回归 |
-| **P3** | `royalty_rate` 模型级开放（受控） | **能力等级 + 统一算力单价**（定价级变更，需拍板 D5）+ Agent 客户端配套 | 代码导出状态化 + 账单区占比环 | 三方分配额变化与预期一致（对照表签字） |
+| **P3**<br>✅ 已完成 | `royalty_rate` 模型级开放（受控） | **能力等级 + 统一算力单价**（定价级变更，需拍板 D5）**默认关** + Agent 客户端配套（显存上报链路） | 代码导出状态化 + 账单区占比环 | 三方分配额变化与预期一致（对照表签字） |
 | **P4** | 对账报表 + 审计导出 | 协议 v2 全量切换 + v1 下线 | `ttft_ms`/`throughput_tps` 后端补齐 + 全量验收 | 两条账各自自洽；双站点根部署完成 |
 
 **开关（全部默认关，逐级打开）**：
@@ -511,7 +511,14 @@ APIPAW_BILLING_SPLIT_CUTOVER=0|1  # A：v2 切正（权威口径，P2 起生产�
 APIPAW_MATCHMAKER_FAIR=0|1      # B：公平排序 + 冷却 + 并发上限（P2 起生产已开）
 APIPAW_NODE_BLIND_DISPATCH=0|1  # B：不透明 model_ref 派单
 APIPAW_NODE_RELIABILITY=0|1     # B：节点信用分降权（默认 1）
+APIPAW_COMPUTE_CLASS_PRICING=0|1  # B：能力等级统一算力单价（P3 新增，默认关 —— 定价级变更）
 APIPAW_DISPATCH_ENABLED=0|1     # 既有：真实节点派单
+
+# P3 附带：能力等级单价表（USD / 1k tokens，可环境变量覆盖 —— 调价不必改代码）
+APIPAW_COMPUTE_CLASS_PRICE_C0=0.10
+APIPAW_COMPUTE_CLASS_PRICE_C1=0.20
+APIPAW_COMPUTE_CLASS_PRICE_C2=0.28
+APIPAW_COMPUTE_CLASS_PRICE_C3=0.35
 ```
 
 **灰度纪律**：每个开关单独开、单独观测、单独回滚；影子期（v2 只算不扣）至少跑满一个完整计费周期
@@ -688,6 +695,78 @@ APIPAW_DISPATCH_ENABLED=1         # 既有：真实节点派单
    会把 stdin 吞掉一半，报 `gzip: stdin: unexpected end of file`（本轮就把两个站点根清空了）。
    **改用 `scp` 传 `.tar.gz` 再本地解包**，别走管道。
 
+### 5.4 P3 交付记录（2026-11-13）
+
+**已落地的代码改动**：
+
+| 模块 | 改动 | 文件 |
+|---|---|---|
+| A（模型级版税率） | `models` 补 `royalty_rate_updated_at` / `royalty_rate_updated_by`（**留痕**）；新建 append-only 表 `model_pricing_changes`（**改价流水**）；`db.update_model_royalty_rate()`（**受控**：仅场景 B、费率 ∈ `[0, 0.30]`、模式须为 `RATE`，非法一律抛 `ValueError` ⇒ 400，绝不静默忽略）；`db.list_model_pricing_changes()`；端点 `POST /api/v1/models/{model_id}/royalty`（**仅 OWNER**）+ `GET /api/v1/models/{model_id}/royalty/history`；**四处联动**：`estimate_hold_cost`（预扣按模型自己的费率）、`db.settle_cost`（v1 也跟模型走 —— 否则「关掉切正开关买家价格就悄悄退回 0.15」）、`db.settle_cost_v2`、`GET /v1/models` 下发 | `D:\APIPawCloud\db.py`、`server.py` |
+| B（能力等级 + 统一算力单价） | `db.COMPUTE_CLASS_UNIT_PRICE_USD`（`C0`~`C3`，USD / 1k tokens，**可环境变量覆盖** ⇒ 调价不必改代码）；`MAX_NODE_COMPUTE_SHARE_RATIO = 0.85`（**安全上限**，防穿仓）；`db.settle_cost_v2(..., compute_class)` —— 平台算力分成做**差额平衡**（`platform_compute = P_compute - node_share`），守恒 I6 不破；`usage_logs` / `revenue_ledger` 补 `node_compute_class`（**事后可查**"这一单按哪个等级结的"）；`server._node_compute_class_of()`（与派单帧 `capability_class` **同一套判定**）；开关 `APIPAW_COMPUTE_CLASS_PRICING`（**默认关**） | `D:\APIPawCloud\db.py`、`server.py` |
+| B′（**P3 补漏**：显存上报链路） | Agent WS 隧道帧新增 `vram_total_gb` / `vram_used_gb` / `vram_free_gb` / `gpu_temp_c`（**硬件**显存，≠ `max_vram` 的"当前模型所需显存"）；`telemetry.collect_gpu_metrics_cached()`（TTL 5s，WS 帧与 HTTP 心跳**共用**一次 `nvidia-smi`）；云端 `server._ws_node_meta()` 提取上述字段写入 `node_registry.meta_json` | `D:\APIPawAgent\telemetry.py`、`ws_tunnel.py`、`D:\APIPawCloud\server.py` |
+| C（代码导出状态化 + 账单区占比环） | 导出代码从**当前实时状态**生成（当前模型 / 四参数 / System Prompt / **当前输入框内容** / **流式开关**）；新增**流式开关**（关掉走非流式一次性请求 `cloudClient.chatOnce()`，导出代码同步变成 `stream:false`，复制出去跑出的行为与界面一致）；「复制成功」反馈 + **切换 tab 清掉反馈**（状态化的经典小 bug）；账单区新增**二元费用结构占比环**（基础算力费 vs 版税池，手绘 SVG + 占比条）+ **三方分账**明细（节点 / 创作者 85% / 平台）；后端 `get_usage_analytics()` 新增 `split` 聚合（基础算力费用「总额 − 版税池」**反推** ⇒ 历史 v1 行与 v2 新行**同口径**，直接求和 v2 列会让历史行显示成 0） | `D:\APIPawPocket\src\api\cloudClient.ts`、`src\components\AnalyticsCard.tsx`、`src\components\PlaygroundCard.tsx` |
+
+**开关（P3 新增的只有一个，默认关）**：
+
+```
+APIPAW_COMPUTE_CLASS_PRICING=0     # B：能力等级统一算力单价 —— 定价级变更，默认关
+APIPAW_COMPUTE_CLASS_PRICE_C0..C3  # B：等级单价表（USD / 1k tokens），可环境变量覆盖
+```
+
+> 能力等级单价**默认关**的原因：它是**定价级变更** —— 会改变节点的实际收入
+> （典型模型下 C0/C1/C2 节点拿得**比旧口径少**，C3 被安全上限截断后持平）。
+> 按灰度纪律「单独开、单独观测、单独回滚」，且需先对照下方签字表。
+> 其余 P3 改动（模型级版税率的**能力**、显存上报链路、前端导出与占比环）
+> **不改变任何既有金额** ⇒ 可无条件上线。
+
+**回归结果**：
+
+| 套件 | 结果 |
+|---|---|
+| `D:\APIPawCloud\test_phase5_p3.py` | **45/45 通过**（A1~A12 模型级版税率 / B1~B8 等级单价与对照表 / C1~C5 显存上报链路） |
+| `D:\APIPawAgent\test_vram_uplink.py` | **11/11 通过**（缓存语义 / 帧带显存 / 老客户端兼容 / 采集失败降级） |
+| `D:\APIPawCloud\test_phase5_p0.py` / `test_phase5_p1.py` / `test_phase5_p2.py` | **25/25 / 32/32 / 34/34 通过**（P0~P2 未回归） |
+| `D:\APIPawCloud\test_dispatch.py` | **37/37 通过** |
+| `test_crypto_cross` / `test_py36_compat` / `test_auth_jwt` / `test_wallet_auth` / `test_db_compat` | **19 / 6 / 15 / 23 / 8 通过**（阶段四基线全绿） |
+| `D:\APIPawPocket\e2e\playground-export.cjs` | **28/28 通过**（hermetic：占比环 / 导出状态化 / 复制反馈 / 流式开关联动） |
+| `D:\APIPawPocket\e2e\playground-params.cjs` / `playground-models.cjs` / `playground-perf.cjs` / `limit-sync.cjs` | **23/23 / 18/18 / 19/19 / 8/8 通过**（前端未回归） |
+| `npx tsc --noEmit` | **0 错** |
+
+**⚠️ 三方分配额签字表（开关打开前必须签字）** —— 模型 `qwen-2.5-72b`，2000 prompt + 1000 completion token：
+
+| 等级 | 算力基价 | 节点 | 创作者 | 平台合计 | 买家实付 | 截断 |
+|---|---|---|---|---|---|---|
+| （旧路径） | 1.1200000000 | 0.9520000000 | 0.1428000000 | 0.1932000000 | 1.2880000000 | — |
+| C0 | 1.1200000000 | 0.3000000000 | 0.1428000000 | 0.8452000000 | 1.2880000000 | no |
+| C1 | 1.1200000000 | 0.6000000000 | 0.1428000000 | 0.5452000000 | 1.2880000000 | no |
+| C2 | 1.1200000000 | 0.8400000000 | 0.1428000000 | 0.3052000000 | 1.2880000000 | no |
+| C3 | 1.1200000000 | 0.9520000000 | 0.1428000000 | 0.1932000000 | 1.2880000000 | YES |
+
+- **买家实付在所有等级下完全一致**（I5 不破）；**创作者始终拿 0.85 × 版税池**（不随等级变）。
+- **每一档都绝对守恒** Σ(节点+创作者+平台) == 买家实付（I6）。
+- 平台在 C0/C1/C2 下**多拿**（差额平衡），C3 下与旧口径持平（被 0.85 上限截断）。
+- ⚠️ **节点侧影响**：C0/C1/C2 节点的收入**低于**旧口径（例：C2 少 11.8%）。
+  这是 D5「按能力定价」的必然结果 —— 若认为降幅过大，先调
+  `APIPAW_COMPUTE_CLASS_PRICE_C1..C3`（环境变量，改完 restart 即生效，**不必改代码**）。
+
+**P3 踩过的坑**：
+
+1. **能力等级单价在生产会是「空转」** —— 云端要判等级就得知道节点显存，
+   而生产主通道是 **WS 隧道**：隧道帧此前既不上报显存（Agent 侧）、
+   云端也不提取显存（`_ws_node_meta`）⇒ 等级永远算不出来。
+   **HTTP 心跳那条路早就通了**（`NodeHeartbeatReq` 早有 `vram_total_gb`），
+   但生产节点几乎都走 WS ⇒ 两条路必须**同时**补齐，否则开关打开也是空转。
+2. **`max_vram` 不是硬件显存** —— 它是「当前模型要多少显存」，
+   拿它判「这块卡有多强」是**语义错误**。云端早已明确「只认 `vram_total_gb`」，
+   P3 的等级判定沿用同一套口径。
+3. **每周期跑两次 `nvidia-smi`** —— WS 帧与 HTTP 心跳各采一次，
+   Windows 上单次 100~300ms。加 TTL 缓存后两条路**共用**一次采集。
+4. **`run_in_executor` 不吃关键字参数** —— `run_in_executor(None, db.update_model_royalty_rate, ...)`
+   会把 `changed_by` 当成 `executor` 的位置参数误传，必须用 `functools.partial` 绑定。
+5. **Windows 控制台是 GBK** —— 冒烟/自检脚本里带 `⇒` 或 emoji 的用例名会
+   直接抛 `UnicodeEncodeError`，让脚本**半路崩掉**（看起来像"脚本坏了"，
+   实际只是 print 编码问题）。脚本开头统一 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`。
+
 ---
 
 ## 6. 不变量与回归红线
@@ -817,7 +896,7 @@ APIPAW_DISPATCH_ENABLED=1         # 既有：真实节点派单
 | P0 | 沙箱矩阵 +32 项：公平排序（两节点轮流被派）、让退冷却、回执字段消失、参数进请求体、费用拆解出现 | 开关关；仅前端发布（双站点根 + `nginx -t` → reload） | 静态站回滚上一份 tar 包 |
 | P1 | 影子对账：v1/v2 逐笔 diff（`request_id` 对齐，容差 1e-9）；`revenue_ledger` 行数 == `usage_logs` 行数 | 影子开关开 24h，观察 diff 与生产库指纹 | 关开关即回滚（数据不动） |
 | P2 | 守恒断言 I6 逐笔通过；提现口径切换前后余额一致 | 守恒报表 + 账实相符（NET==BAL）+ integrity_check | 翻回 `APIPAW_BILLING_SPLIT_V2=0` |
-| P3 | 三方分配额与签字对照表一致；能力等级筛选命中/落空正确 | 分成额抽查 + 节点侧协议 v2 兼容回归 | 能力等级开关 + 协议版本协商回退 v1 |
+| P3<br>✅ 已完成 | 三方分配额与签字对照表一致（沙箱 45/45，含对照表逐档断言）；能力等级筛选命中/落空正确（C3 24GB→C2 / 8GB→C1 / 未上报→保持旧口径） | 分成额抽查 + 节点侧协议 v2 兼容回归 | 能力等级开关（`APIPAW_COMPUTE_CLASS_PRICING`，默认关）+ 协议版本协商回退 v1 |
 | P4 | 全量回归（阶段三/四全部矩阵 + 新增） | 端到端 e2e + 审计导出 | 数据迁移只加列/加表，**回滚 = 停用新读路径** |
 
 **回归基线（必须保持全绿）**：

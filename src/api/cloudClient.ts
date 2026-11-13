@@ -231,6 +231,28 @@ export interface AnalyticsResponse {
     platform_fee_usd: number;
     total_usd: number;
     total_cgas: number;
+    /** 阶段五 P2 · v2 权威口径（老网关可能不下发 ⇒ undefined，前端必须容错） */
+    p_compute_usd?: number;
+    p_royalty_usd?: number;
+    royalty_pool_usd?: number;
+    node_share_usd?: number;
+    creator_share_usd?: number;
+    platform_total_usd?: number;
+  };
+  /**
+   * 阶段五 P3 · **二元费用结构**（基础算力费 vs 版税池）+ 三方分账。
+   *
+   * 后端按「总额 − 版税池」反推基础算力费 ⇒ 历史 v1 行与 v2 新行**同口径**，
+   * 直接求和 v2 列会让历史行的基础算力费显示成 0。
+   */
+  split?: {
+    base_compute_usd: number;
+    royalty_pool_usd: number;
+    creator_share_usd: number;
+    node_share_usd: number;
+    platform_total_usd: number;
+    total_usd: number;
+    total_cgas: number;
   };
   totals: {
     prompt_tokens: number;
@@ -571,6 +593,63 @@ export const withdrawCreatorRoyalty = async (
 };
 
 // ----------------- SSE 流式推理 -----------------
+
+export interface ChatOnceOptions {
+  model: string;
+  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
+  apiKey?: string;
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
+  systemPrompt?: string;
+}
+
+export interface ChatOnceResult {
+  content: string;
+  reasoning: string;
+  usage: ChatUsage;
+}
+
+/**
+ * 阶段五 P3 · **非流式**一次性请求。
+ *
+ * Playground 的「流式开关」关掉时走这里（导出代码里的 `stream` 也随之变成 false，
+ * 复制出去就能跑出与界面一致的结果）。
+ * 网关对 `stream: false` 返回标准 OpenAI 形状：`choices[0].message` + `usage`。
+ */
+export const chatOnce = async (options: ChatOnceOptions): Promise<ChatOnceResult> => {
+  const apiKey = options.apiKey ?? usePawStore.getState().apiKey;
+  const systemPrompt = (options.systemPrompt ?? '').trim();
+  const finalMessages = systemPrompt
+    ? [{ role: 'system' as const, content: systemPrompt }, ...options.messages]
+    : options.messages;
+  const body: Record<string, unknown> = {
+    model: options.model,
+    messages: finalMessages,
+    stream: false,
+  };
+  if (options.temperature !== undefined) body.temperature = options.temperature;
+  if (options.topP !== undefined) body.top_p = options.topP;
+  if (options.maxTokens !== undefined) body.max_tokens = options.maxTokens;
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const res = await cloudApi.post('/v1/chat/completions', body, { headers });
+  const data = (res.data ?? {}) as {
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+    usage?: ChatUsage;
+  };
+  const message = data.choices?.[0]?.message ?? {};
+  let content = String(message.content ?? '');
+  let reasoning = String(message.reasoning_content ?? '');
+  // 网关把思考链塞在 <think> 标签里（非流式路径），拆出来单独展示
+  const think = /<think>([\s\S]*?)<\/think>/.exec(content);
+  if (think) {
+    reasoning = think[1];
+    content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  }
+  return { content, reasoning, usage: (data.usage ?? {}) as ChatUsage };
+};
 
 export interface StreamChatOptions {
   model: string;
