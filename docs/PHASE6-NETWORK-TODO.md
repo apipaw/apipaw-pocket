@@ -1,7 +1,7 @@
 # 阶段六 · 算力网络蓝图（PHASE6-NETWORK-TODO）
 
-> **状态**：摸底完成，待拍板（P0 起步前的决策清单见 §8）
-> **起草**：2026-11-14
+> **状态**：✅ **D1~D12 已于 2026-11-14 全部拍板**（结论见 §8）；**P0 开发进行中**
+> **起草**：2026-11-14 · **拍板**：2026-11-14
 > **前置**：阶段三（计费）、阶段四（Web3 鉴权）、阶段五（二元分账 / 盲派路由 / Playground）均已封板并上线生产
 > **本次触发**：阶段五 P4 收官遗留项「v2 盲派单尚未在真实商业模型 + 多节点场景下压测」已由
 > `apipaw-cloud/test_phase5_multinode_stress.py` 补齐（47/47，见附录 B）——**盲派与计费的"协议层"已可信任，
@@ -176,6 +176,7 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 - **强制 `stream=True`**：修掉 `ws_tunnel.py:692` 的透传漏洞（非流式载荷 → 0 分片 → 0 usage）。
 - 后端不可用时：**明确报错 `backend_unavailable`**，**绝不回落到模拟回答**（红线 1）。
 - 配置项（`agent_config.py`）：`inference_backend = auto|ollama|vllm|llamacpp`、`backend_base_url`、`backend_model`、`backend_timeout_sec`（替掉 `ws_tunnel.py:733` 的硬编码 60s）。
+- ✅ **D1 已拍板**：Ollama 优先 + **统一抽象层**，`vLLM` / `llama.cpp` 在抽象层内**预留同接口实现位**（P1 补）。
 
 ### 2.2 A2 · 节点模型清单上报（P0）
 
@@ -212,7 +213,7 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 | 派单成功 | 节点文本 | 不变 |
 | 无候选 / 全忙 / 全冷却 | **模板回答 + 计费** | **`503 {code:"no_capacity"}`，不计费、退预扣** |
 | 派单超时 | 换节点 → 最终模板 + 计费 | **`504 {code:"dispatch_timeout"}` 或换节点，最终失败不计费** |
-| `DISPATCH_ENABLED=0` | 模板回答 + 计费 | **显式 `X-APIPaw-Dispatch: simulated` + 允许计费（探针/演示模式，需拍板 D5）** |
+| `DISPATCH_ENABLED=0` | 模板回答 + 计费 | **模板回答（`X-APIPaw-Dispatch: simulated`）+ 一律 $0 不计费（D5 已拍板）** |
 
 - 退款路径已有现成实现：结算异常时写 FAILED 流水并退预扣（`server.py:2508-2530`），可直接复用为"派单失败不计费"。
 - **前端必须能区分**：`PlaygroundCard.tsx:122-126` 已有三态徽标（node/simulated/fallback），新增 `error` 态并给出**明确文案**
@@ -255,8 +256,9 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 
 ### 4.1 C1 · 节点自助注册与绑码（P1）
 
-**现状**：只能 CLI（`manage_node.py`）。**方案**（需拍板 D7：自助 vs 审批）：
-- `POST /api/v1/nodes/register`：钱包会话 JWT 鉴权 → 提交节点名/硬件/所在地区 → 生成 `node_id` + `node_secret`（**一机一码**）。
+**现状**：只能 CLI（`manage_node.py`）。**方案**（✅ D3 已拍板：**自助注册 + OWNER 审批激活**）：
+- `POST /api/v1/nodes/register`：钱包会话 JWT 鉴权 → 提交节点名/硬件/所在地区 → 生成 `node_id` + `node_secret`（**一机一码**）；
+  注册后节点状态为 `PENDING`，**须 OWNER 审批激活**才可被派单（防刷号，保住一机一码）。
 - 密钥**只在此刻返回一次**，云端只存哈希或只存 secret 供 HMAC 用（**注意：v2 派单密钥 = SHA256("apipaw-dispatch-v2|"+node_secret)**，
   云端必须持有 secret 才能加密 ⇒ **要么云端明文存 secret（现状），要么改为云端派生对称密钥 + 节点侧持有同一密钥**）。
   ⇒ 这是 §8 **D8** 必须拍板的密码学决策。
@@ -270,9 +272,9 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 - 新表 `node_withdrawals`（形态对齐 `creator_withdrawals`，`db.py:463`/`3419`）。
 - 新端点 `POST /api/v1/node/withdraw`（节点业主鉴权）+ `GET /api/v1/node/earnings`（可用/已提/流水）。
 - **可用余额口径**：`Σ revenue_ledger.node_share_usd (归属该节点) − Σ node_withdrawals(已提)`，与创作者同构（`db.py:3451-3463`）。
-- 提现币种形态待拍板（D9）：**PAW 链上转账** / **内部 USD 余额** / **两者并存**。
-  - 若走链上：需要钱包签名 + 转账通道，复杂度显著上升，且受 `ethers v6 + SecureStore` 现有栈影响（阶段四已建）。
-  - 若走内部余额：最快，但与"Web3 结算"叙事有张力。
+- 提现币种形态（✅ D2 已拍板）：**P1 先做内部 USD 余额 + 提现流水台账**，把闭环打通；
+  **链上 PAW 转账放 P3**（届时需要钱包签名 + 转账通道，受 `ethers v6 + SecureStore` 现有栈影响，阶段四已建）。
+  - ⇒ P1 阶段与"Web3 结算"叙事有张力，**必须在前端明确标注"内部余额提现，链上通道待上线"**，不得含糊其辞。
 
 ### 4.3 C3 · 节点治理（P2）
 
@@ -287,15 +289,17 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 ### 5.1 D1 · 关闭未鉴权上架旁路（P0）
 
 `POST /api/v1/models/register`（`server.py:1916-1917`）**零鉴权**。
-- **动作**：该端点改为 **OWNER-only** 或直接下线；创作者路径统一走 `POST /api/v1/creator/models/register`（已有 `require_creator`）。
+- **动作（P0 已落地）**：该端点改为 **OWNER 或 CREATOR 身份必需**，且 **CREATOR 只能覆盖自己的模型条目**，
+  越权覆盖他人条目一律 `409`；无凭证 `401`、非 CREATOR/OWNER `403`。
+- 创作者路径继续统一走 `POST /api/v1/creator/models/register`（已有 `require_creator`）。
 - 兼容性：先查生产 `models` 表里是否存在**未经 `require_creator` 落库**的行（`tier`/作者字段为空或异常），再做切换。
 
-### 5.2 D2 · 版税率策略（P2，需拍板 D11）
+### 5.2 D2 · 版税率策略（P2，✅ D4 已拍板：路 A 平台定价 + 申请审批）
 
 - 现状：创作者**不能**自助调价（`server.py:2099-2140` 明确"平台侧动作"），自助上架时继承默认 0.15。
-- 两条路：
-  - **路 A（保持平台定价）**：创作者提交**期望**版税率 → 进入审批队列 → OWNER 签字生效（复用 `model_pricing_changes` 流水）。
-  - **路 B（放开自助）**：创作者在区间内自助设置，平台只做上下限与审计。**风险**：版税率直接影响三方分账，属定价级变更。
+- **拍板走「路 A（平台定价 + 创作者申请、OWNER 审批）」**：
+  创作者提交**期望**版税率 → 进入审批队列 → OWNER 签字生效（复用 `model_pricing_changes` 流水与 `royalty_rate_snapshot` 机制）。
+  **放弃路 B（自助调价）** —— 版税率直接影响三方分账，属定价级变更，保留签字纪律。
 - 前端配套：`ModelStudioCard.tsx` 的 YAML 预览与价格**必须由后端生成**（现在本地写死，`ModelStudioCard.tsx:78-89, 115-116`）；
   `RoyaltyCard.tsx` **必须渲染** `royalty_rate`（现在有类型无展示）。
 
@@ -310,10 +314,10 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 
 | 批次 | 内容 | 开关 | 前置 |
 |---|---|---|---|
-| **P0** | 网关：严格模式（503/504 + 不计费 + 退预扣）· 关未鉴权上架 · 修 Agent 转发强制 `stream:true` · Agent 后端抽象骨架（仅 Ollama）· 模型清单上报字段 | `APIPAW_DISPATCH_STRICT`（默认 0） | 阶段五 P4 已封板 |
-| **P1** | Agent：Ollama/vLLM/llama.cpp 三后端可用 · 真实 usage 优先 · 节点注册/绑码端点与前端页 · 节点收益提现闭环 · 端到端真流式 | `APIPAW_REAL_STREAM`（默认 0） | P0 严格模式上线且观察 48h |
-| **P2** | 网关：模型↔节点匹配 · 短等待队列 · 可观测端点（派单统计 + 网络健康）· 创作者自助版税策略落地 · 节点治理页 | `APIPAW_QUEUE_WAIT_SEC`（默认 0） | P1 至少 1 台真节点在线 |
-| **P3** | 计量对齐：估算 vs 真实计量偏差评估 · 真实 TTFT 口径生效 · 前端展示节点身份/等级 | — | P1/P2 稳定 |
+| **P0** | 网关：**D5 模拟回答零计费 + 严格模式 503/504 退预扣** · **D10 等级语义拆分（`node_tier` / `model_capability_class`）** · **D11 C0 档可达** · **关闭未鉴权上架旁路** · 修 Agent 转发强制 `stream:true` · Agent 后端抽象骨架（Ollama 底座 + vLLM/llama.cpp 预留位，D1）· 模型清单上报字段 | `APIPAW_DISPATCH_STRICT`（默认 0）· `APIPAW_SIMULATED_FREE`（默认 1）· `APIPAW_COMPUTE_CLASS_TIER_MAX_GB`（默认 C0=8/C1=16/C2=48） | 阶段五 P4 已封板 |
+| **P1** | Agent：Ollama/vLLM/llama.cpp 三后端可用 · 真实 usage 优先 · 节点自助注册 + OWNER 审批激活（D3）· 节点收益**内部 USD** 提现闭环（D2）· 端到端真流式 | `APIPAW_REAL_STREAM`（默认 0） | P0 严格模式上线且观察 48h |
+| **P2** | 网关：模型↔节点匹配 · 短等待队列 · 可观测端点（派单统计 + 网络健康）· **创作者版税申请+OWNER 审批**（D4 路 A）· 节点治理页 | `APIPAW_QUEUE_WAIT_SEC`（默认 0） | P1 至少 1 台真节点在线 |
+| **P3** | 计量对齐：估算 vs 真实计量偏差评估 · 真实 TTFT 口径生效 · 前端展示节点身份/等级 · **链上 PAW 提现通道**（D2 后置项） | — | P1/P2 稳定 |
 | **P4** | 常态化：`APIPAW_DISPATCH_ENABLED=1` **前置条件全部满足** · 真实节点灰度 → 全量 · 模拟回答模式降级为"演示开关" | `APIPAW_DISPATCH_ENABLED` | P0~P3 全部验收通过 |
 
 **灰度纪律（承阶段五 P3 教训）**：
@@ -334,28 +338,47 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 | I4 | 派单载荷**不含**任何商业字段（买家实付/平台抽成/版税/价格） | 压测 S1.10 + 载荷字段白名单断言 |
 | I5 | v2 载荷**无明文 model**；v1 节点自动降级不阻断 | 压测 S1.6~S1.9 |
 | I6 | 节点分成 ≤ `0.85 × 算力基价`；被截断时平台差额平衡 | 压测 S7.10 |
-| I7 | **（阶段六新增）派单失败 ⇒ 买家不付费**（不产生 `usage_logs` 计费行，或行标记为 FAILED） | 新增断言：严格模式下 503/504 路径下 `balance_ledger` 无净支出 |
+| I7 | **（阶段六新增）派单失败 ⇒ 买家不付费**（不产生 `usage_logs` 计费行；预扣以 `FAILED`/`WAIVED` 流水释放） | 新增断言：严格模式下 503/504 路径下 `balance_ledger` 无净支出，且 `NET==BAL` 仍精确相等 |
 | I8 | **（阶段六新增）真实计量与估算口径可区分** | `usage_logs.usage_source` 取值分布审计 |
 | I9 | **（阶段六新增）派单成功率、节点让退率、覆盖率**可被 OWNER 端点读取 | `GET /api/v1/owner/dispatch/stats` 断言 |
 
 ---
 
-## 8. 决策清单（需拍板）
+## 8. 决策清单（✅ 已于 2026-11-14 全部拍板）
 
-| # | 决策 | 选项 | 影响 | 建议 |
+> 业主已正式确认 **D1~D12 全部决策点**（"其余细项一律采纳推荐方案"）。
+> 下表「拍板结论」列为最终结论，与代码实现一一对应；§6 路线与 §9 验收矩阵已按本表校准。
+
+| # | 决策 | 选项 | 拍板结论（2026-11-14） | 落地位置 / 落地批次 |
 |---|---|---|---|---|
-| **D1** | 首个真实推理后端 | Ollama / vLLM / llama.cpp / 三者同时 | 决定 Agent P0 范围与装机体验 | **先 Ollama**（装机最省、显存直出），P1 再补另两个 |
-| **D2** | 算力业主**提现币种** | PAW 链上 / 内部 USD 余额 / 两者 | 决定是否需要转账通道与钱包签名 | **先内部余额**打通闭环，链上转 P3 再议（叙事不丢，通道可后加） |
-| **D3** | 节点注册模式 | 完全自助 / 自助+OWNER审批 / 仅 OWNER 签发 | 决定 C1 端点与风控强度 | **自助 + OWNER 审批**（防刷号，保住一机一码） |
-| **D4** | 创作者版税率 | 平台定价（申请+审批）/ 创作者自助（区间内） | 定价级变更，需签字 | **路 A（申请+审批）**：保留阶段五签字纪律 |
-| **D5** | 模拟回答模式是否继续计费 | 计费 / 免费 | 影响探针、演示、演示环境 | **演示模式不计费，计费模式显式标注**；不允许"静默" |
-| **D6** | 断流已发分片时如何计费 | 不计费 / 按已发内容计费 | 影响 B3 真流式 + I7 | **不计费**（首版简单，且宁可少收不可收错） |
-| **D7** | 严格模式的 503 语义 | `503 no_capacity` / `429` / `202 排队` | 影响客户端重试策略 | **503 + `Retry-After`** |
-| **D8** | 派单密钥存储 | 云端明文存 `node_secret` / 派生对称密钥 | 影响 v2 盲派可撤销性 | 短期**沿用现状**，阶段六内评估"派生密钥 + 轮换"（中长期更安全） |
-| **D9** | 节点自助改价/改版税率 | 见 D4 | —— | 随 D4 |
-| **D10** | **等级命名冲突**：`capability_class`（模型侧）与 `node_compute_class`（节点侧） | 改名 / 拆命名空间 | 现在两个语义共用 C0~C3，误读账单风险 | **改名**：节点侧 `node_tier`，模型侧 `model_capability_class`；**只加列、不改旧列** |
-| **D11** | **结算侧 C0 档不可达** | 承认现状 / 重新定义 C0 边界 | 现状 `0<gb≤16→C1`，未上报→旧口径 | **承认现状**并在文档标注"C0 仅存在于派单帧标签"；如要 C0 落地需重新签字 |
-| **D12** | 队列等待窗口默认值 | 0（不排队）/ 若干秒 | 影响 P99 与体验 | **默认 0**，只留开关与观测，按数据调 |
+| **D1** | 首个真实推理后端 | Ollama / vLLM / llama.cpp / 三者同时 | **Ollama 优先**，但**必须建统一抽象层**：`vLLM` / `llama.cpp` 在抽象层里**预留位**（同接口、同一契约），P1 补实现 | Agent `inference_backend.py`（P0 抽象层 + Ollama 后端） |
+| **D2** | 算力业主**提现币种** | PAW 链上 / 内部 USD 余额 / 两者 | **内部 USD 余额 + 提现流水台账，现在就做**（先打通闭环）；**链上 PAW 放 P3** | P1 建 `node_withdrawals` 台账 + 提现端点；P3 接链上通道 |
+| **D3** | 节点注册模式 | 完全自助 / 自助+OWNER审批 / 仅 OWNER 签发 | **自助注册 + OWNER 审批激活**（注册与激活分离，防刷号，保住一机一码） | P1 `node_registrations` + OWNER 激活端点 |
+| **D4** | 创作者版税率 | 平台定价（申请+审批）/ 创作者自助（区间内） | **平台定价 + 创作者申请、OWNER 审批**（保留阶段五签字纪律） | P2 创作者申请/审批流程（`royalty_rate_snapshot` 机制复用） |
+| **D5** | 模拟回答模式是否继续计费 | 计费 / 免费 | **模拟回答一律 $0 不计费**；同时提供**严格模式开关**，无真实节点时返回 **503/504** 并**释放预扣** | 开关 `APIPAW_SIMULATED_FREE`（默认 1）+ `APIPAW_DISPATCH_STRICT`（默认 0）；**P0** |
+| **D6** | 断流已发分片时如何计费 | 不计费 / 按已发内容计费 | **不计费**（采纳推荐） | P1 真流式落地时实现（`APIPAW_REAL_STREAM`） |
+| **D7** | 严格模式的 503 语义 | `503 no_capacity` / `429` / `202 排队` | **503 + `Retry-After`**（采纳推荐）；超时另给 504 | **P0** 已实现 |
+| **D8** | 派单密钥存储 | 云端明文存 `node_secret` / 派生对称密钥 | **短期沿用现状**（采纳推荐），阶段六内评估"派生密钥 + 轮换" | 不在 P0/P1 范围，阶段六内出评估结论 |
+| **D9** | 节点自助改价/改版税率 | 见 D4 | **随 D4**（平台定价，节点无权自改） | P2 |
+| **D10** | **等级命名冲突**：`capability_class`（模型侧）与 `node_compute_class`（节点侧） | 改名 / 拆命名空间 | **改名并拆命名空间**：节点侧 → **`node_tier`**（结算用），模型侧 → **`model_capability_class`**（派单帧用）；**只加列、不改旧列** | `db.py` + `server.py`；**P0** 已实现 |
+| **D11** | **结算侧 C0 档不可达** | 承认现状 / 重新定义 C0 边界 | **修 C0 可达性**：入门级显存节点必须能结算在 **C0** 档。边界 `≤8GB → C0` / `≤16GB → C1` / `≤48GB → C2` / 其余 `C3`；阈值可由 `APIPAW_COMPUTE_CLASS_TIER_MAX_GB` 覆盖。**未上报显存 → 等级空 → 保持旧口径（不悄悄降薪）** | `db.node_tier_of_vram()`；**P0** 已实现 |
+| **D12** | 队列等待窗口默认值 | 0（不排队）/ 若干秒 | **默认 0**（采纳推荐），只留开关与观测，按数据调 | P2 `APIPAW_QUEUE_WAIT_SEC` |
+
+### 8.1 D5 / D10 / D11 的实现契约（P0 验收锚点）
+
+**D5 · 模拟回答零计费**
+- 模拟回答**不产生** `usage_logs` 计费行、**不产生** `revenue_ledger` 行；预扣以 **`WAIVED` 流水**释放（`HOLD(-x)` + `WAIVED(+x)` = 0）。
+- ⇒ `NET == BAL` 恒等**不被破坏**，对账覆盖率**不产生孤儿行**。
+- `reap_stale_holds` 的"已结清"集合扩展为 `('SETTLE','FAILED','WAIVED')`，避免预扣被二次释放（双退款隐患已封）。
+- 严格模式（`APIPAW_DISPATCH_STRICT=1`）：无候选 → **503 `no_capacity`**；派单超时 → **504 `dispatch_timeout`**；两者均 `Retry-After: 5` + 释放预扣。
+
+**D10 · 等级语义拆分（只加列）**
+- 新增列：`usage_logs.node_tier`、`usage_logs.model_capability_class`、`revenue_ledger.node_tier`。
+- 旧列 `node_compute_class` **保留不改**（历史行不回填），读侧按"新列优先、空则回退旧列"平滑兼容。
+
+**D11 · C0 可达**
+- 新增 `db.node_tier_of_vram(vram_gb)`：`≤8 → C0`、`≤16 → C1`、`≤48 → C2`、其余 `C3`；显存未知（≤0 或未上报）→ 返回空串。
+- 新增 `db.model_capability_class(min_vram_gb)`：模型侧能力标签，语义与节点侧**解耦**（同名不同义的坑就此封死）。
 
 ---
 
@@ -365,7 +388,7 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 |---|---|
 | 全部 | 阶段五全套回归不得回退：P0/P1/P2/P3/P4 沙箱套件 + dispatch 37 + protocol_v2 19 + node_auth 34 + registry_concurrency 11 + batch2 32（**必须在源站 venv Python 3.6.8 + SQLite 3.7.17 上跑**）+ 多节点压测 47 项 |
 | 全部 | 生产基线复原：`users=1`、`api_keys=2`、`usage_logs=27`、`balance_ledger=40`、`daily_spend=6`、`revenue_ledger=0`、`NET==BAL==1016.037562`、双库 `integrity_check=ok` |
-| P0 | 严格模式下无候选 ⇒ 503 且 `balance_ledger` 无净支出（I7）；`/api/v1/models/register` 无鉴权访问被拒 |
+| P0 | 严格模式下无候选 ⇒ **503**（超时 **504**）+ `Retry-After` 且 `balance_ledger` **无净支出**、**无 `usage_logs` 计费行**（I7）· 模拟回答**零计费**（`WAIVED` 流水对冲，`NET==BAL` 不变）· `/api/v1/models/register` 无凭证 `401` / 非 CREATOR-OWNER `403` / 覆盖他人条目 `409` / OWNER 允许 · `node_tier` 与 `model_capability_class` 分列且 `4GB→C0` · 迁移幂等 |
 | P1 | 真节点端到端：Agent（Ollama）接单 → 流式回传 → 买家 SSE 逐字到达 → `usage_source=real`；提现端点可走通（沙箱） |
 | P2 | 派单统计端点返回真数据；网络健康端点买家可读 |
 | P3 | 估算 vs 真实计量偏差报告 |
@@ -420,3 +443,49 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 1. 结算侧 **C0 不可达**（D11）。
 2. `capability_class` 与 `node_compute_class` **命名冲突**（D10）。
 3. 池饱和时网关**降级为模拟回答而非排队/报错** —— 阶段六 P0 的第一靶子（§3.1）。
+
+---
+
+## 附录 C · 阶段六 P0 交付实录（2026-11-14 已上线生产）
+
+### C.1 上线内容
+
+| 项 | 落地位置 | 状态 |
+|---|---|---|
+| **安全修复**：`POST /api/v1/models/register` 零鉴权漏洞封堵（401/403/409/200 四态） | `apipaw-cloud/server.py` | ✅ 已上线 |
+| **D5**：模拟/回退回答**一律 $0**（`WAIVED` 流水对冲，零用量行、零分账行） | `server.py` + `db.py` | ✅ 已上线 |
+| **D5**：严格模式开关（503 `no_capacity` / 504 `dispatch_timeout` + `Retry-After` + 释放预扣） | `server.py`，开关 `APIPAW_DISPATCH_STRICT` | ✅ 代码已上线，**开关默认 0（灰度纪律）** |
+| **D10**：`node_tier`（节点侧）/ `model_capability_class`（模型侧）拆列 | `db.py` + `server.py` | ✅ 已上线 |
+| **D11**：C0 档可达（≤8GB→C0），显存未知⇒空串（不降薪） | `db.node_tier_of_vram()` | ✅ 已上线 |
+| **模块 A1**：Agent 侧统一推理后端抽象层 + Ollama 底座（纯标准库） | `apipaw-agent/inference_backend.py` | ✅ 已上线（Agent v1.0.7） |
+| **模块 A2**：节点上报 `models` / `inference_backend` ⇒ 云端 `node_registry.meta_json` | Agent `ws_tunnel.py` + 网关 `_ws_node_meta` | ✅ 已上线（**纯加字段**，老 Agent 向后兼容） |
+
+### C.2 生产部署实录
+
+- **备份**：`deploy_backup.sh p6-p0`（双库 `.backup` + 代码 + 双站前端包），回滚点在 `/opt/apipaw-backups/*_20261114-134602_*`。
+- **部署**：`scp` → `/tmp/apipaw_p6_p0` → `sudo cp` 进 `/opt/apipaw-cloud`；**sha256 逐字节校验一致**（`server.py` / `db.py` / 冒烟脚本）。
+- **开关**：新增 systemd **drop-in** `/etc/systemd/system/apipaw-cloud.service.d/p6-p0.conf`（不动单元本体，回滚只需删目录）：
+  `APIPAW_DISPATCH_STRICT=0`（严格模式**保持关闭**）+ `APIPAW_SIMULATED_FREE=1`（零计费**已生效**）。
+- **迁移**：`usage_logs.node_tier` / `usage_logs.model_capability_class` / `revenue_ledger.node_tier` 三列**纯加列、幂等**，历史行不回填。
+
+### C.3 验收结果
+
+| 套件 | 结果 |
+|---|---|
+| `apipaw-cloud/test_phase6_p0.py`（源站 venv **Python 3.6.8 + SQLite 3.7.17**） | **52/52** |
+| 阶段五回归（P3 45 / node_auth 34 / wallet_auth 23 / 多节点压测 51 / P1 32 / dispatch 37 / py36 兼容） | **全绿**（protocol_v2 16/17，1 条为 Windows 路径环境产物，非回归） |
+| Agent 侧 `test_inference_backend.py` | **21/21** |
+| Agent 侧 `test_ui_hot_reload.py` | **全绿**（热重载 0.13s，看门狗保留） |
+| **生产线上冒烟** `smoke_p6_p0_prod.py` | **33/33**（鉴权矩阵 9 + D5 零计费 7 + D10/D11 8 + 模块 A 契约 4 + 基线 4） |
+
+### C.4 生产基线复原（分毫不差）
+
+```
+users=1  api_keys=2  usage_logs=27  balance_ledger=40  daily_spend=6
+revenue_ledger=0  models=5  dispatch_log=0
+NET == BAL == 1016.037562        双库 integrity_check=ok
+```
+
+- 冒烟自建的 3 个账户、1 个测试模型、全部 `dispatch_log` 行**已随脚本自动清理**。
+- 另清理阶段五遗留的**模拟节点行** `nodes_history.apipaw-cloud-sim`（920 tokens / 489.24725 PAW 假收益；该节点只存在于历史结算记录里，不在 `node_registry` 中，属演示种子数据）。保留真实节点行 `node_default_001`。
+- ⚠️ 9 条 `usage_logs` 行的 `node_id` 仍指向 `apipaw-cloud-sim`（历史演示用量行，属基线 27 行之一，**未动**）。
