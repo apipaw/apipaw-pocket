@@ -16,8 +16,10 @@ import { HostTab, hydrateSession, usePawStore } from './src/store/usePawStore';
 import {
   fetchOwnerDashboard,
   fetchOwnerRevenue,
+  fetchNetworkHealth,
   fetchUserUsage,
   toggleNodeStatus,
+  NetworkHealth,
   OwnerDashboard,
   OwnerRevenue,
 } from './src/api/cloudClient';
@@ -26,6 +28,7 @@ import AnalyticsCard from './src/components/AnalyticsCard';
 import ModelStudioCard from './src/components/ModelStudioCard';
 import PipelineMeshCard from './src/components/PipelineMeshCard';
 import RoyaltyCard from './src/components/RoyaltyCard';
+import NodeGovernanceCard from './src/components/NodeGovernanceCard';
 import KeyIssuePanel from './src/components/KeyIssuePanel';
 import WalletPanel from './src/components/WalletPanel';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
@@ -39,6 +42,7 @@ const HOST_TABS: Array<{ key: HostTab; label: string }> = [
   { key: 'NODES', label: '算力节点' },
   { key: 'STUDIO', label: '模型工作台' },
   { key: 'ROYALTY', label: '版税大盘' },
+  { key: 'GOVERNANCE', label: '节点治理' },
 ];
 
 /** 仪表盘在窄屏降级为单列 */
@@ -66,6 +70,7 @@ export default function App() {
 
   const [dashboard, setDashboard] = useState<OwnerDashboard | null>(null);
   const [revenue, setRevenue] = useState<OwnerRevenue | null>(null);
+  const [network, setNetwork] = useState<NetworkHealth | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [keyModalVisible, setKeyModalVisible] = useState(false);
   const [walletModalVisible, setWalletModalVisible] = useState(false);
@@ -77,6 +82,20 @@ export default function App() {
       setDashboard(data);
     } catch (e) {
       console.log('加载 Cloud API 失败:', e);
+    }
+  };
+
+  /**
+   * 拉取全网算力网络健康度 —— **公开端点**，买家也能读到真实的在线节点数。
+   *
+   * 阶段六 P2 之前，这张卡依赖 OWNER-only 的 ``/api/v1/owner/dashboard``，
+   * 普通买家恒为 0（摸底结论）。现在改读 ``/api/v1/network/health``。
+   */
+  const loadNetwork = async () => {
+    try {
+      setNetwork(await fetchNetworkHealth());
+    } catch (e) {
+      console.log('加载网络健康度失败:', e);
     }
   };
 
@@ -113,6 +132,7 @@ export default function App() {
       loadData();
       loadUsage();
       loadRevenue();
+      loadNetwork();
     });
     // 首次访问没有可用密钥 —— 直接弹出设置框，避免首屏全是 401
     if (!apiKey) setKeyModalVisible(true);
@@ -129,6 +149,7 @@ export default function App() {
     await loadData();
     await loadUsage();
     await loadRevenue();
+    await loadNetwork();
     setRefreshing(false);
   };
 
@@ -303,10 +324,14 @@ export default function App() {
               <View style={styles.dashSide}>
                 <StatTile
                   label="在线算力节点"
-                  value={`${dashboard?.active_nodes_online || 0}`}
+                  value={`${network?.online_nodes ?? 0}`}
                   unit="台"
                   tone="emerald"
-                  hint={`全网注册 ${dashboard?.registered_nodes_total || 0} 台`}
+                  hint={
+                    network
+                      ? `可派 ${network.dispatchable_nodes} 台 · 可服务 ${network.servable_models} 个模型`
+                      : '正在读取全网算力状态…'
+                  }
                 />
                 <StatTile
                   label="今日已消费"
@@ -357,7 +382,9 @@ export default function App() {
                     </Text>
                     <View style={styles.nodePanelStats}>
                       <View style={styles.nodePanelStat}>
-                        <Text style={styles.nodePanelValue}>{dashboard?.active_nodes_online || 0}</Text>
+                        <Text style={styles.nodePanelValue}>
+                          {network?.online_nodes ?? dashboard?.active_nodes_online ?? 0}
+                        </Text>
                         <Text style={styles.nodePanelLabel}>在线挂机节点数 (台)</Text>
                       </View>
                       <View style={styles.nodePanelDivider} />
@@ -484,6 +511,12 @@ export default function App() {
             {hostTab === 'ROYALTY' && (
               <View style={styles.column}>
                 <RoyaltyCard />
+              </View>
+            )}
+
+            {hostTab === 'GOVERNANCE' && (
+              <View style={styles.column}>
+                <NodeGovernanceCard />
               </View>
             )}
           </View>

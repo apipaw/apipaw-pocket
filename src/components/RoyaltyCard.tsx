@@ -12,8 +12,11 @@ import Svg, { Line, Path, Text as SvgText } from 'react-native-svg';
 import { usePawStore } from '../store/usePawStore';
 import {
   RoyaltyResponse,
+  RoyaltyRateRequest,
   describeCloudError,
   fetchCreatorRoyalty,
+  fetchCreatorRoyaltyRequests,
+  submitCreatorRoyaltyRequest,
   withdrawCreatorRoyalty,
 } from '../api/cloudClient';
 import { colors, fontSize, radius, spacing } from '../theme';
@@ -133,6 +136,14 @@ const RoyaltyCard: React.FC = () => {
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [withdrawDone, setWithdrawDone] = useState<string | null>(null);
 
+  // ---- 版税率申请（阶段六 P2 · D2 / D4 路 A）----
+  const [requests, setRequests] = useState<RoyaltyRateRequest[]>([]);
+  const [rateInput, setRateInput] = useState('');
+  const [reasonInput, setReasonInput] = useState('');
+  const [requesting, setRequesting] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestDone, setRequestDone] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     try {
       setError(null);
@@ -148,6 +159,24 @@ const RoyaltyCard: React.FC = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  /**
+   * 拉取**我提交的**版税率申请（进度追踪）。
+   *
+   * 失败不打断主面板 —— 版税大盘本身可读，申请列表只是附加信息。
+   */
+  const loadRequests = useCallback(async () => {
+    try {
+      const res = await fetchCreatorRoyaltyRequests(50);
+      setRequests(res.requests ?? []);
+    } catch (e) {
+      console.log('读取版税申请失败:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRequests();
+  }, [loadRequests]);
 
   const totals = data?.totals;
 
@@ -174,6 +203,43 @@ const RoyaltyCard: React.FC = () => {
       setWithdrawing(false);
     }
   }, [withdrawAmount, load]);
+
+  /**
+   * 提交期望版税率（D4 路 A：平台定价 + 申请 + OWNER 审批）。
+   *
+   * ⚠️ 本端点**只落申请**，不直接改价 —— 定价级变更必须 OWNER 签字。
+   * 输入用**百分比**（如 20 表示 20%），后端收的是 0~1 的比例。
+   */
+  const handleRequestRate = useCallback(async () => {
+    const pct = Number(rateInput);
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 30) {
+      setRequestError('请输入 0 ~ 30 之间的版税率百分比（如 20 表示 20%）');
+      return;
+    }
+    if (!data?.models.length) {
+      setRequestError('当前账号名下没有上架模型，无法提交版税率申请');
+      return;
+    }
+    setRequestError(null);
+    setRequesting(true);
+    try {
+      const res = await submitCreatorRoyaltyRequest(
+        data.models[0].model_id,
+        pct / 100,
+        reasonInput.trim(),
+      );
+      setRequestDone(
+        `✓ 申请已提交 · ${res.request.model_id} · 期望 ${(res.request.requested_rate * 100).toFixed(1)}%`,
+      );
+      setRateInput('');
+      setReasonInput('');
+      await loadRequests();
+    } catch (e: any) {
+      setRequestError(describeCloudError(e));
+    } finally {
+      setRequesting(false);
+    }
+  }, [rateInput, reasonInput, data, loadRequests]);
 
   return (
     <View style={styles.card} testID="royalty-card" id="apx-glass-royalty">
@@ -257,7 +323,9 @@ const RoyaltyCard: React.FC = () => {
 
           {/* 版税走势 */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>24 小时版税走势 · 15% 创作者分成</Text>
+            <Text style={styles.sectionTitle}>
+              {`24 小时版税走势 · ${((data?.royalty_rate ?? 0) * 100).toFixed(0)}% 创作者分成`}
+            </Text>
             <View
               style={styles.chartBox}
               onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}
@@ -303,6 +371,69 @@ const RoyaltyCard: React.FC = () => {
             ) : (
               <Text style={styles.emptyText}>暂无上架模型，先到工作台完成模型上架</Text>
             )}
+          </View>
+
+          {/* ---------------- 版税率申请（D4 路 A · D2）---------------- */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>版税率申请</Text>
+            <Text style={styles.requestHint}>
+              期望版税率由**平台定价 + 业主签字**决定：这里只提交申请，审批通过后即刻生效。
+              当前生效比例 {(data?.royalty_rate ?? 0) * 100 > 0
+                ? `${((data?.royalty_rate ?? 0) * 100).toFixed(1)}%`
+                : '待平台确认'}
+              。
+            </Text>
+
+            <View style={styles.requestRow}>
+              <TextInput
+                testID="royalty-rate-input"
+                style={styles.requestInput}
+                value={rateInput}
+                onChangeText={setRateInput}
+                placeholder="期望版税率 %（如 20）"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+              />
+              <TouchableOpacity
+                testID="royalty-rate-submit"
+                style={[styles.requestBtn, requesting && styles.btnDisabled]}
+                onPress={handleRequestRate}
+                disabled={requesting}
+                activeOpacity={0.8}
+              >
+                {requesting ? (
+                  <ActivityIndicator color={colors.bg} size="small" />
+                ) : (
+                  <Text style={styles.requestBtnText}>提交申请</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              testID="royalty-rate-reason-input"
+              style={styles.requestInput}
+              value={reasonInput}
+              onChangeText={setReasonInput}
+              placeholder="申请理由（可选）"
+              placeholderTextColor={colors.textMuted}
+            />
+
+            {requestError ? <Text style={styles.requestError}>⚠️ {requestError}</Text> : null}
+            {requestDone ? <Text style={styles.requestDone}>{requestDone}</Text> : null}
+
+            {requests.length ? (
+              <View style={styles.requestList}>
+                {requests.map((req) => (
+                  <View key={req.id} style={styles.requestItem}>
+                    <Text style={styles.requestItemTitle}>{req.model_id}</Text>
+                    <Text style={styles.requestItemMeta}>
+                      期望 {(req.requested_rate * 100).toFixed(1)}% · 当前{' '}
+                      {(req.current_rate * 100).toFixed(1)}% · {req.status}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
 
           {/* 提现流水 */}
@@ -419,6 +550,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  requestHint: { color: colors.textMuted, fontSize: fontSize.xs, lineHeight: 17 },
+  requestRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  requestInput: {
+    flex: 1,
+    backgroundColor: colors.cardAlt,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.textPrimary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: fontSize.sm,
+    marginTop: spacing.sm,
+  },
+  requestBtn: {
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.purple,
+    justifyContent: 'center',
+  },
+  requestBtnText: { color: '#1B1233', fontSize: fontSize.xs, fontWeight: '800' },
+  requestError: { color: colors.danger, fontSize: fontSize.xs, marginTop: spacing.sm },
+  requestDone: { color: colors.accent, fontSize: fontSize.xs, marginTop: spacing.sm },
+  requestList: { marginTop: spacing.sm },
+  requestItem: {
+    backgroundColor: colors.cardAlt,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  requestItemTitle: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '700' },
+  requestItemMeta: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',

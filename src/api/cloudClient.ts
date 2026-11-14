@@ -49,6 +49,17 @@ const JWT_ONLY_PATHS = ['/api/v1/owner/nodes/revenue'];
  */
 const OWNER_PATH_PREFIX = '/api/v1/owner';
 
+/**
+ * 阶段六 P2 · 节点自助端点（`POST /api/v1/nodes/{id}/pause` 与
+ * `POST /api/v1/nodes/{id}/appeal`）**不在** `/api/v1/owner` 路径下，
+ * 但它们同样是 OWNER 凭证口径（`require_owner` 收钱包会话 JWT 或 API Key）。
+ *
+ * 若不把它们算进「业主路径」，拦截器只会发买家 API Key —— 只有钱包会话、
+ * 没有 API Key 的业主会直接吃到 401。这两个前缀同样按「会话优先、回落 API Key」
+ * 处理。
+ */
+const OWNER_LIKE_PATH_PREFIXES = ['/api/v1/nodes/'];
+
 const isJwtOnlyPath = (url: string | undefined): boolean => {
   if (!url) return false;
   return JWT_ONLY_PATHS.some((p) => url.includes(p));
@@ -56,7 +67,8 @@ const isJwtOnlyPath = (url: string | undefined): boolean => {
 
 const isOwnerPath = (url: string | undefined): boolean => {
   if (!url) return false;
-  return url.includes(OWNER_PATH_PREFIX);
+  if (url.includes(OWNER_PATH_PREFIX)) return true;
+  return OWNER_LIKE_PATH_PREFIXES.some((p) => url.includes(p));
 };
 
 // 统一注入凭证：会话端点用 JWT，业主端点「会话优先、回落 API Key」，其余用买家 API Key
@@ -593,6 +605,212 @@ export const fetchOwnerRevenue = async (): Promise<OwnerRevenue> => {
 
 export const toggleNodeStatus = async (nodeId: string) => {
   const res = await cloudApi.post(`/api/v1/owner/node/${nodeId}/toggle`);
+  return res.data;
+};
+
+// ----------------- 阶段六 P2 · 网络健康 / 节点治理 / 版税申请 -----------------
+
+/**
+ * 算力网络健康度 —— **公开可读**（只含聚合计数，不含节点 id / 钱包 / 收益）。
+ *
+ * 为什么需要它：买家端「在线算力节点」此前依赖 OWNER-only 的
+ * `/api/v1/owner/dashboard`，普通买家恒为 0。本端点让任何人都能读到真实的
+ * 全网在线节点数与可服务模型数。
+ */
+export interface NetworkHealth {
+  status: string;
+  online_nodes: number;
+  dispatchable_nodes: number;
+  busy_nodes: number;
+  servable_models: number;
+  catalog_models: number;
+  saturated: boolean;
+  queue_wait_sec: number;
+  strict_mode: boolean;
+  dispatch_enabled: boolean;
+  real_stream: boolean;
+  checked_at: number;
+}
+
+export const fetchNetworkHealth = async (): Promise<NetworkHealth> => {
+  const res = await cloudApi.get('/api/v1/network/health');
+  return res.data;
+};
+
+/** 业主视角的派单统计（按节点：派单量 / 成功率 / 让退 / 冷却 / 平均排队等待） */
+export interface OwnerDispatchNodeStat {
+  node_id: string;
+  dispatches: number;
+  successes: number;
+  failures: number;
+  success_rate: number;
+  yields: number;
+  cooldowns: number;
+  avg_wait_ms: number;
+  reliability_score: number;
+}
+
+export interface OwnerDispatchStats {
+  window_minutes: number;
+  by_node: OwnerDispatchNodeStat[];
+  totals?: Record<string, unknown>;
+}
+
+export const fetchOwnerDispatchStats = async (
+  windowMinutes: number = 60,
+): Promise<OwnerDispatchStats> => {
+  const res = await cloudApi.get('/api/v1/owner/dispatch/stats', {
+    params: { window_minutes: windowMinutes },
+  });
+  return res.data;
+};
+
+/** 节点治理视图里的一台节点 */
+export interface GovernanceNode {
+  node_id: string;
+  node_name?: string | null;
+  hardware_type?: string | null;
+  agent_version?: string | null;
+  status?: string | null;
+  alive: boolean;
+  dispatchable: boolean;
+  dispatch_eligible: boolean;
+  is_paused: number;
+  inflight: number;
+  reliability_score: number;
+  yields_24h: number;
+  dispatches_24h: number;
+  success_rate_24h: number;
+  total_earnings_paw: number;
+  earnings_usd: number;
+  requests: number;
+  tokens: number;
+  owner_wallet: string;
+  last_heartbeat?: number | null;
+}
+
+export const fetchOwnerNodesGovernance = async (): Promise<{ nodes: GovernanceNode[] }> => {
+  const res = await cloudApi.get('/api/v1/owner/nodes/governance');
+  return res.data;
+};
+
+export const fetchOwnerNodeDetail = async (
+  nodeId: string,
+): Promise<{ node: GovernanceNode }> => {
+  const res = await cloudApi.get(`/api/v1/owner/node-detail/${nodeId}`);
+  return res.data;
+};
+
+/** 节点业主自助暂停 / 恢复接单 */
+export const toggleNodePause = async (
+  nodeId: string,
+): Promise<{ status: string; node_id: string; is_paused: number; current_status: string }> => {
+  const res = await cloudApi.post(`/api/v1/nodes/${nodeId}/pause`);
+  return res.data;
+};
+
+/** 节点业主提交让退误判申诉 */
+export interface NodeAppeal {
+  id: number;
+  node_id: string;
+  owner_wallet: string;
+  reason: string;
+  detail: string;
+  status: string;
+  decided_by: string;
+  decision_note: string;
+  decided_at: number;
+  created_at: number;
+}
+
+export const submitNodeAppeal = async (
+  nodeId: string,
+  reason: string,
+  detail: string = '',
+): Promise<{ status: string; appeal: NodeAppeal }> => {
+  const res = await cloudApi.post(`/api/v1/nodes/${nodeId}/appeal`, { reason, detail });
+  return res.data;
+};
+
+export const fetchOwnerNodeAppeals = async (
+  status: string = 'PENDING',
+  limit: number = 50,
+): Promise<{ appeals: NodeAppeal[] }> => {
+  const res = await cloudApi.get('/api/v1/owner/node-appeals', {
+    params: { status, limit },
+  });
+  return res.data;
+};
+
+export const decideOwnerNodeAppeal = async (
+  appealId: number,
+  approve: boolean,
+  note: string = '',
+): Promise<{ status: string; result: { appeal_id: number; status: string; decided_by: string } }> => {
+  const res = await cloudApi.post(`/api/v1/owner/node-appeal/${appealId}/decide`, {
+    approve,
+    note,
+  });
+  return res.data;
+};
+
+/** 创作者提交期望版税率申请（D4 路 A：平台定价 + 申请 + OWNER 审批） */
+export interface RoyaltyRateRequest {
+  id: number;
+  model_id: string;
+  creator_id: string;
+  author_wallet: string;
+  requested_rate: number;
+  current_rate: number;
+  status: string;
+  reason: string;
+  decided_by: string;
+  decision_note: string;
+  decided_at: number;
+  created_at: number;
+}
+
+export const submitCreatorRoyaltyRequest = async (
+  modelId: string,
+  requestedRate: number,
+  reason: string = '',
+): Promise<{ status: string; request: RoyaltyRateRequest }> => {
+  const res = await cloudApi.post('/api/v1/creator/royalty/request', {
+    model_id: modelId,
+    requested_rate: requestedRate,
+    reason,
+  });
+  return res.data;
+};
+
+export const fetchCreatorRoyaltyRequests = async (
+  limit: number = 50,
+): Promise<{ requests: RoyaltyRateRequest[] }> => {
+  const res = await cloudApi.get('/api/v1/creator/royalty/requests', { params: { limit } });
+  return res.data;
+};
+
+/** OWNER 审批队列：列出版税申请 */
+export const fetchOwnerRoyaltyRequests = async (
+  status: string = 'PENDING',
+  limit: number = 50,
+): Promise<{ requests: RoyaltyRateRequest[] }> => {
+  const res = await cloudApi.get('/api/v1/owner/royalty/requests', {
+    params: { status, limit },
+  });
+  return res.data;
+};
+
+/** OWNER 签字：批准 / 驳回一笔版税申请 */
+export const decideOwnerRoyaltyRequest = async (
+  requestId: number,
+  approve: boolean,
+  note: string = '',
+): Promise<{ status: string; result: Record<string, unknown> }> => {
+  const res = await cloudApi.post(`/api/v1/owner/royalty/request/${requestId}/decide`, {
+    approve,
+    note,
+  });
   return res.data;
 };
 

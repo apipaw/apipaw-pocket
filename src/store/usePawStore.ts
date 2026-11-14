@@ -39,7 +39,7 @@ const persistApiKey = (key: string): void => {
 };
 
 /** HOST 端内部分段切换 */
-export type HostTab = 'NODES' | 'STUDIO' | 'ROYALTY';
+export type HostTab = 'NODES' | 'STUDIO' | 'ROYALTY' | 'GOVERNANCE';
 
 interface PawState {
   /** 本地**视图偏好**（买家视角 / 业主视角）—— **不再是权限来源** */
