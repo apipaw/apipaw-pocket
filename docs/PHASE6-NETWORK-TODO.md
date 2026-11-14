@@ -199,6 +199,16 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
   已发分片但未收到 DONE ⇒ 该单**不计费**（或按已发内容计费，需拍板，见 D6）。
 - Agent 重连：握手阶段失败也走指数退避（补 `ws_tunnel.py:410-421`），上限 8s 不变。
 
+> **P2 交付记录（2026-11-15）**
+>
+> - 节点侧 A4 已落地（Agent v1.0.9）：`inference_backend.BackendStreamBroken` + Ollama 流 `saw_done`
+>   校验 ⇒ 推理中途挂掉回 `RESPONSE_ERROR{error:"backend_stream_broken"}` 且**不发** `RESPONSE_DONE`；
+>   开跑前就失败仍回 `backend_unavailable`，两类语义**不混**；同一 request_id 只回**一次**错误帧，
+>   **不静默重试**。自检 `test_phase6_p2_stream_broken.py` 6/6（本地假 Ollama 吐一半就掐 TCP，全程离线）。
+> - ⚠️ 上面"握手阶段失败也走指数退避"一行**已作废**（被 commit `2129f63` 取代）：DAY14 实测 CF 边缘会拒
+>   3~4 次握手，指数退避把离线窗口从 ~12s 拉长到 ~50s，因此**故意**改成握手阶段不翻倍（上限仍是 8s）。
+>   保留此注记以免后人照旧行"补实现"而把断连拉长。
+
 ---
 
 ## 3. 模块 B · 网关真实派单常态化（"常态化开启"的核心）
@@ -316,7 +326,7 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 |---|---|---|---|
 | **P0** | 网关：**D5 模拟回答零计费 + 严格模式 503/504 退预扣** · **D10 等级语义拆分（`node_tier` / `model_capability_class`）** · **D11 C0 档可达** · **关闭未鉴权上架旁路** · 修 Agent 转发强制 `stream:true` · Agent 后端抽象骨架（Ollama 底座 + vLLM/llama.cpp 预留位，D1）· 模型清单上报字段 | `APIPAW_DISPATCH_STRICT`（默认 0）· `APIPAW_SIMULATED_FREE`（默认 1）· `APIPAW_COMPUTE_CLASS_TIER_MAX_GB`（默认 C0=8/C1=16/C2=48） | 阶段五 P4 已封板 |
 | **P1** | Agent：Ollama/vLLM/llama.cpp 三后端可用 · 真实 usage 优先 · 节点自助注册 + OWNER 审批激活（D3）· 节点收益**内部 USD** 提现闭环（D2）· 端到端真流式 | `APIPAW_REAL_STREAM`（默认 0） | P0 严格模式上线且观察 48h |
-| **P2** | 网关：模型↔节点匹配 · 短等待队列 · 可观测端点（派单统计 + 网络健康）· **创作者版税申请+OWNER 审批**（D4 路 A）· 节点治理页 | `APIPAW_QUEUE_WAIT_SEC`（默认 0） | P1 至少 1 台真节点在线 |
+| **P2** ✅ | 网关：模型↔节点匹配 · 短等待队列 · 可观测端点（派单统计 + 网络健康）· **创作者版税申请+OWNER 审批**（D4 路 A）· 节点治理页 · Agent 断流错误语义（A4） | `APIPAW_DISPATCH_QUEUE_WAIT_SEC`（默认 0，**实际开关名以此为准**；蓝图早稿写的 `APIPAW_QUEUE_WAIT_SEC` 已作废） | P1 至少 1 台真节点在线 |
 | **P3** | 计量对齐：估算 vs 真实计量偏差评估 · 真实 TTFT 口径生效 · 前端展示节点身份/等级 · **链上 PAW 提现通道**（D2 后置项） | — | P1/P2 稳定 |
 | **P4** | 常态化：`APIPAW_DISPATCH_ENABLED=1` **前置条件全部满足** · 真实节点灰度 → 全量 · 模拟回答模式降级为"演示开关" | `APIPAW_DISPATCH_ENABLED` | P0~P3 全部验收通过 |
 
@@ -390,7 +400,7 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 | 全部 | 生产基线复原：`users=1`、`api_keys=2`、`usage_logs=27`、`balance_ledger=40`、`daily_spend=6`、`revenue_ledger=0`、`NET==BAL==1016.037562`、双库 `integrity_check=ok` |
 | P0 | 严格模式下无候选 ⇒ **503**（超时 **504**）+ `Retry-After` 且 `balance_ledger` **无净支出**、**无 `usage_logs` 计费行**（I7）· 模拟回答**零计费**（`WAIVED` 流水对冲，`NET==BAL` 不变）· `/api/v1/models/register` 无凭证 `401` / 非 CREATOR-OWNER `403` / 覆盖他人条目 `409` / OWNER 允许 · `node_tier` 与 `model_capability_class` 分列且 `4GB→C0` · 迁移幂等 |
 | P1 | 真节点端到端：Agent（Ollama）接单 → 流式回传 → 买家 SSE 逐字到达 → `usage_source=real`；提现端点可走通（沙箱） |
-| P2 | 派单统计端点返回真数据；网络健康端点买家可读 |
+| P2 | 派单统计端点返回真数据；网络健康端点买家可读 · 版税申请**不改价**、OWNER 审批闭环 · 治理页字段齐全 · 短等待队列开关默认 0 · Agent 断流回 `backend_stream_broken` 且**不**发 DONE（**已验收**：生产冒烟 33/33，基线 `NET==BAL==1016.037562` 分毫不差） |
 | P3 | 估算 vs 真实计量偏差报告 |
 | P4 | `APIPAW_DISPATCH_ENABLED=1` 灰度观察 ≥72h，零 I1~I9 违规 |
 
