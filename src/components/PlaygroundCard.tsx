@@ -46,6 +46,8 @@ export interface RunStats {
   platformTotalUsd: number;
   /** 阶段五 P2 · 回答来源（node / simulated / fallback） */
   answerSource?: string;
+  /** 阶段五 P4 · 性能读数来源：node=后端实测 / local=前端本地计时 */
+  perfSource?: string;
   /** 阶段五 P2 · D9：流式过程中的临时统计（费用尚未结算，不展示小票） */
   partial?: boolean;
 }
@@ -232,10 +234,16 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({
 const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
   <View style={styles.statsBar}>
     {/* 阶段五 P2 · D9：三块 StatTile —— 首字延迟 / 吐字速度 / 总 token。
-        TTFT 与 tok/s 都是**前端本地计时**（请求发出 → 第一个有效 delta）。 */}
+        阶段五 P4 起：TTFT 与 tok/s **优先用后端实测值**（跨设备可比、可回溯），
+        后端没给（模拟回答 / 老网关）时才回退**前端本地计时**。 */}
     <View style={styles.statTilesRow}>
       <View style={styles.statTileWrap} testID="playground-stat-ttft">
-        <StatTile label="首字延迟 TTFT" value={formatMs(stats.ttftMs)} tone="cyan" />
+        <StatTile
+          label="首字延迟 TTFT"
+          value={formatMs(stats.ttftMs)}
+          tone="cyan"
+          hint={stats.perfSource === 'node' ? '后端实测' : '本地计时'}
+        />
       </View>
       <View style={styles.statTileWrap} testID="playground-stat-tps">
         <StatTile
@@ -243,6 +251,7 @@ const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
           value={stats.tokensPerSec.toFixed(1)}
           unit="tok/s"
           tone="emerald"
+          hint={stats.perfSource === 'node' ? '后端实测' : '本地计时'}
         />
       </View>
       <View style={styles.statTileWrap} testID="playground-stat-tokens">
@@ -337,6 +346,10 @@ const PlaygroundCard: React.FC = () => {
       platform_royalty_fee_usd?: number;
       platform_total_usd?: number;
       royalty_rate?: number;
+      // 阶段五 P4 · 性能读数（后端实测；缺省时前端回退本地计时）
+      ttft_ms?: number;
+      throughput_tps?: number;
+      perf_source?: string;
     } | null,
   });
 
@@ -574,14 +587,25 @@ console.log(response.choices[0].message.content);`;
   const finalizeRun = useCallback((botId: string) => {
     const run = runRef.current;
     const endedAt = Date.now();
-    const ttftMs = run.firstTokenAt ? run.firstTokenAt - run.startedAt : endedAt - run.startedAt;
+    const localTtftMs = run.firstTokenAt ? run.firstTokenAt - run.startedAt : endedAt - run.startedAt;
     const generationMs = run.firstTokenAt ? endedAt - run.firstTokenAt : 0;
     const completionTokens = run.usage?.completion_tokens ?? estimateTokens('x'.repeat(run.contentChars));
     // 极端情况下（首字与结束同毫秒）generationMs 会是 0 → 退回整段耗时，
     // 否则吐字速度会显示 0.0，给用户「没跑起来」的错觉。
     const effectiveMs = generationMs > 0 ? generationMs : Math.max(1, endedAt - run.startedAt);
-    const tokensPerSec = completionTokens / (effectiveMs / 1000);
+    const localTokensPerSec = completionTokens / (effectiveMs / 1000);
     const usage = run.usage;
+
+    // 阶段五 P4 · 模块 C（决策 D9）：**后端实测优先，缺省时回退本地计时**。
+    // 后端值来自真实节点的分片时序 —— 跨设备可比、可回溯；
+    // 老网关（不下发这两个字段）或模拟回答（后端记 0 = 无意义）⇒ 用本地计时。
+    const backendTtftMs =
+      typeof usage?.ttft_ms === 'number' && usage.ttft_ms > 0 ? usage.ttft_ms : 0;
+    const backendTokensPerSec =
+      typeof usage?.throughput_tps === 'number' && usage.throughput_tps > 0 ? usage.throughput_tps : 0;
+    const ttftMs = backendTtftMs > 0 ? backendTtftMs : localTtftMs;
+    const tokensPerSec = backendTokensPerSec > 0 ? backendTokensPerSec : localTokensPerSec;
+    const perfSource = backendTtftMs > 0 || backendTokensPerSec > 0 ? 'node' : 'local';
 
     // 阶段五 P2 · v2 明细优先、老网关回落旧字段（字段缺失时前端自己兜底）
     const baseComputeUsd =
@@ -618,6 +642,7 @@ console.log(response.choices[0].message.content);`;
                 creatorShareUsd,
                 platformTotalUsd,
                 answerSource: usage?.answer_source ?? m.answerSource,
+                perfSource,
               },
             }
           : m,
@@ -780,6 +805,8 @@ console.log(response.choices[0].message.content);`;
                 royaltyPoolUsd: 0,
                 creatorShareUsd: 0,
                 platformTotalUsd: 0,
+                // 流式过程中还没有后端实测值 ⇒ 明确标成「本地计时」
+                perfSource: 'local',
                 partial: true,
               },
             }

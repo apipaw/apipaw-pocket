@@ -784,6 +784,83 @@ APIPAW_COMPUTE_CLASS_PRICE_C0..C3  # B：等级单价表（USD / 1k tokens），
 
 ---
 
+### 5.5 P4 交付记录（2026-11-14）· 阶段五收官
+
+> 本轮起点是**一次断电/关机事故**（本地机器突然断电）。
+> 事故后先做"灾后体检"（本地三仓 `.git/index.lock` / 残留临时文件、生产 systemd 开关、
+> 双库 `integrity_check` 与基线采样），确认**生产未被波及**（服务器未重启、
+> 服务 `active`、`/health` 200、双库 `integrity_check=ok`、基线逐项一致），
+> 才继续推进 P4。**结论：无需任何生产数据回滚。**
+
+**① P3 开关签字生效（`APIPAW_COMPUTE_CLASS_PRICING=1`）**
+
+| 项 | 结果 |
+|---|---|
+| systemd 单元 | 显式声明 `APIPAW_COMPUTE_CLASS_PRICING=1`（签字后切正），`APIPAW_COMPUTE_CLASS_PRICE_C0..C3` 同时在单元里写明 |
+| 线上观测 | `smoke_p5_p3_prod.py` **36/36 通过**（等级表单调、I5 不破、I6 守恒、0.85 上限） |
+| 受控探针 | `probe_p5_p3_switch.py` **15/15 通过** —— 两个库指向**临时副本**、`import server`（跑真实部署模块），零生产数据触碰：显存判级 C1/C2/C3 ✓、老版本节点（未上报显存）等级为空（保持旧口径，不悄悄降薪）✓、派单帧与结算**同一套判定** ✓、截断后节点分成恰好 = 0.85×基价 ✓、截断时买家实付与守恒仍不变 ✓ |
+| 探针踩坑 | `db.settle_cost()` 返回 `base_compute_usd` / `total_usd`，`settle_cost_v2()` 返回 `buyer_total_usd` —— 键名三套，别混用 |
+
+**② 模块 A · 双账本对账报表 + 审计导出（新增两个 OWNER 只读端点）**
+
+| 端点 | 作用 |
+|---|---|
+| `GET /api/v1/audit/reconciliation` | 返回 `db.reconcile_ledgers()` 完整结果：`balance_ledger`（账实相符，NET == BAL）、`revenue_ledger`（三方守恒）、`coverage`（v2 行与分账行的**集合级**覆盖）、`problems`（人可读问题清单）。`ok=false` 即账有问题 |
+| `GET /api/v1/audit/export.csv` | 逐行导出「分账流水 × 买家实付」，末列 `accounting_ok` 直接给该行是否守恒（财务可用 Excel 直接筛异常行）。表头 `Content-Type: text/csv` + `Cache-Control: no-store` |
+
+- **对账端点必须无副作用**：只读、不写库、不改账 —— 否则"跑一次报表"就能把账改坏。
+- **覆盖度检查改为按 `request_id` 集合比对**（旧写法只比行数，行数相同但**行被换掉**也会误判为覆盖完整）。
+- **审计导出以 `usage_logs` 为基表** `LEFT JOIN revenue_ledger`：生产 27 条历史行全是切正前的 v1，`revenue_ledger` 为空 ⇒ 以 `revenue_ledger` 为基表的导出会**导出 0 行**。
+- v1 历史行的 `accounting_ok` 为**空串**（"不适用"），不是"不平衡" —— 两者语义必须分开。
+
+**③ 模块 B · 派单协议 v2（盲派单全量切换，老版本 Agent 兼容）**
+
+| 项 | 内容 |
+|---|---|
+| 载荷 | `model_ref`（加盐不透明 `m-<8 hex>`）、`capability_class`、`protocol_version=2`、`model_cipher`（HMAC-SHA256-CTR，密钥 = `SHA256("apipaw-dispatch-v2|" + node_secret)`，格式 `v2:<nonce>:<digest+cipher>`） |
+| 密钥 | `dispatch_crypto.py`（`derive_key` / `encrypt_model` / `decrypt_model`），**逐节点密钥** ⇒ 密文只有该节点能解 |
+| 开关 | `APIPAW_NODE_BLIND_DISPATCH=1`（systemd 单元显式声明） |
+| 兼容 | 无凭证/老版本节点 ⇒ **自动回退 v1 明文派单**，不阻断既有节点接单 |
+| 回归 | `test_dispatch_protocol_v2.py` **19/19 通过**（加解密往返、密文不含明文 model、载荷瘦身、无凭证回退 v1、v1 老客户端兼容） |
+
+**④ 模块 C · 性能读数（`ttft_ms` / `throughput_tps`）后端落库 + 前端优先后端**
+
+| 层 | 内容 |
+|---|---|
+| 后端 | `usage_logs` 增 `ttft_ms` / `throughput_tps` 两列（纯加列、幂等）；`usage_payload` 下发 `ttft_ms` / `throughput_tps` / `perf_source`（`node` = 节点上报，`local` = 服务端本地计时）。`ttft_ms` = 派单下发 → 节点**首个内容分片**；`throughput_tps` = completion_tokens ÷（首字→尾包）耗时 |
+| 前端 | `cloudClient.ts` 的 `ChatUsage` 扩字段；`PlaygroundCard.tsx` 的 `finalizeRun` **优先采用后端值**，后端缺失才回退本地计时，并回写 `perfSource` 供 UI 标注数据来源 |
+| 构建 | `npx tsc --noEmit` **0 错**；`expo export -p web` 产出 bundle `index-6665d70ec15b56285eb75556ca7078db.js` |
+| 发布 | `scp` → `/tmp/webp5p4` → `sudo rsync -a --delete` 同步到 `/var/www/apipaw-console` 与 `/var/www/apipaw-pocket`（**不用 `tar \| ssh`**，历史事故：会把站点根清空）→ `nginx -t` 通过 → `systemctl reload nginx` |
+
+**⑤ 终极回归与基线复原（2026-11-14）**
+
+| 套件 | 结果 |
+|---|---|
+| `test_phase5_p4.py` | **45/45 通过**（模块 A 对账/审计导出 / 模块 B 协议 v2 / 模块 C 性能读数；含 A9.1 断言 `missing_split_request_ids` 精确等于被删流程的那一行） |
+| `smoke_p5_p4_prod.py`（生产） | **35/35 通过**（模块 A：401/403/200、NET==BAL、守恒、CSV 表头与 `accounting_ok` 域、审计端点**只读**证明 / 模块 B：注册表读写、逐节点凭证、`protocol_version`、加解密往返、载荷瘦身、无凭证回退 v1 / 模块 C：`ttft_ms`/`throughput_tps`/`perf_source` 落库且 I6 守恒） |
+| `test_phase5_p0/p1/p2/p3.py` | **25/25 / 32/32 / 34/34 / 45/45 通过**（P0~P3 未回归） |
+| `test_dispatch.py` / `test_dispatch_protocol_v2.py` | **37/37 / 19/19 通过** |
+| `test_node_auth.py` / `test_registry_concurrency.py` / `test_batch2_sandbox.py` | **34/34 / 11/11 / 32/32 通过**（源站 SQLite 3.7.17 上跑的批次 2 沙箱） |
+| `test_crypto_cross` / `test_db_compat` / `test_py36_compat` / `test_auth_jwt` / `test_wallet_auth` | **19 / 8 / 6 / 15 / 23 通过**（阶段四基线全绿） |
+| `D:\APIPawAgent\test_dispatch_v2.py` | **通过**（Agent 侧 v2 解密与 v1 兼容） |
+| 前端 e2e（Playground 参数/模型/性能/导出/限额同步） | **全部通过**（对生产站点的临时 OWNER Key 验收，验完即删） |
+| 基线复原 | `users=1`、`api_keys=2`、`usage_logs=27`、`balance_ledger=40`、`daily_spend=6`、`revenue_ledger=0`、`bal=net=1016.037562`、双库 `integrity_check=ok` —— **与跑前逐项一致，误差为 0** |
+
+**P4 踩过的坑**：
+
+1. **冒烟脚本的 `environ` 不继承 systemd 单元的环境变量** ⇒ 冒烟里 `NODE_BLIND_DISPATCH` 恒为 False，
+   误判"v2 载荷含明文 model"。正解：**直接读 `/etc/systemd/system/apipaw-cloud.service`** 判断开关，
+   再写进 `os.environ` 后才 `import server`。
+2. **`media_type="text/csv; charset=utf-8"` 会被 Starlette 再补一次 charset** ⇒ 变成
+   `text/csv; charset=utf-8; charset=utf-8`。只写 `"text/csv"`。
+3. **只读性断言要取"审计调用前后"的快照**，不能拿"建账户前"的快照比 —— 建账户本身就是写。
+4. **CSV 表头断言要看整个 `fieldnames`**，只看 `fieldnames[0]` 会把"缺列"漏成"通过"。
+5. **SQLite 3.7.17 没有 `printf()`** ⇒ 生产上算钱用 `ROUND(x, 6)`。
+6. **本地 Windows Python 的 SQLite 比生产新** ⇒ UPSERT / `VACUUM INTO` 之类版本差异在本地测不出来；
+   批次 2 沙箱必须在**源站 venv（Python 3.6.8 + SQLite 3.7.17）**上跑才算数。
+
+---
+
 ## 6. 不变量与回归红线
 
 阶段五**不得破坏**以下既有不变式（阶段三/四已验证）：

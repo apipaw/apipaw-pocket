@@ -319,6 +319,14 @@ export interface ChatUsage {
   platform_royalty_fee_usd?: number;
   platform_total_usd?: number;
   royalty_rate?: number;
+  /** 阶段五 P3 · 节点能力等级（空串 = 未启用等级单价） */
+  node_compute_class?: string;
+  /** 阶段五 P4 · 首字延迟（毫秒）—— 后端实测；模拟回答为 0（前端回退本地计时） */
+  ttft_ms?: number;
+  /** 阶段五 P4 · 吐字速度（tokens/秒）—— 后端实测；模拟回答为 0 */
+  throughput_tps?: number;
+  /** 阶段五 P4 · 性能读数来源：node=后端实测 / local=前端本地计时 */
+  perf_source?: string;
 }
 
 // ----------------- 创作者端类型 (CreatorEx) -----------------
