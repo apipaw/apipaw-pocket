@@ -14,8 +14,10 @@ import * as Clipboard from 'expo-clipboard';
 import { usePawStore } from '../store/usePawStore';
 import {
   CLOUD_BASE_URL,
+  CapacityError,
   ModelInfo,
   StreamChatHandle,
+  capacityErrorOf,
   chatOnce,
   describeCloudError,
   fetchModels,
@@ -50,6 +52,18 @@ export interface RunStats {
   perfSource?: string;
   /** 阶段五 P2 · D9：流式过程中的临时统计（费用尚未结算，不展示小票） */
   partial?: boolean;
+  /** 阶段六 D10 · 节点硬件档位（C0~C3；空串 = 节点未上报显存） */
+  nodeTier?: string;
+  /** 阶段六 D10 · 模型需求档位（C0~C3） */
+  modelCapabilityClass?: string;
+  /** 阶段六 D5/D6 · 本次免单（模拟回答 / 断流 ⇒ $0） */
+  waived?: boolean;
+  /** 阶段六 · 免单原因（后端回传） */
+  waiveReason?: string;
+  /** 阶段六 D6 · 断流原因 */
+  streamError?: string;
+  /** 阶段六 P1 · 用量来源：node=节点真实上报 / estimate=估算 */
+  usageSource?: string;
 }
 
 export interface ChatMessageItem {
@@ -63,6 +77,8 @@ export interface ChatMessageItem {
   error?: string;
   /** 阶段五 P2 · 本次回答来源（流开始时就能拿到，用于来源徽标） */
   answerSource?: string;
+  /** 阶段六 P1 · 严格模式容量错误（503 no_capacity / 504 dispatch_timeout） */
+  capacityError?: CapacityError;
 }
 
 type ExporterTab = 'curl' | 'python' | 'javascript';
@@ -126,6 +142,31 @@ const SOURCE_META: Record<string, { label: string; color: string }> = {
 };
 
 const sourceMetaOf = (mode?: string | null) => SOURCE_META[String(mode || '')] ?? null;
+
+// ----------------- 阶段六 D10 · 算力档位 -----------------
+
+/**
+ * 档位文案（阈值与后端 ``COMPUTE_CLASS_TIER_MAX_GB`` 保持一致）：
+ *   C0 ≤8GB / C1 ≤16GB / C2 ≤48GB / C3 >48GB。
+ *
+ * ⚠️ **节点档位**（``node_tier``）与**模型需求档位**（``model_capability_class``）
+ * 是两回事：前者是"这台机器多能打"，后者是"这个模型要多大显存才跑得动"。
+ */
+const TIER_META: Record<string, { label: string; hint: string }> = {
+  C0: { label: 'C0 入门', hint: '≤8GB 显存' },
+  C1: { label: 'C1 标准', hint: '≤16GB 显存' },
+  C2: { label: 'C2 进阶', hint: '≤48GB 显存' },
+  C3: { label: 'C3 高端', hint: '>48GB 显存' },
+};
+
+const tierMetaOf = (tier?: string | null) => TIER_META[String(tier || '').toUpperCase()] ?? null;
+
+/** 档位展示文本（未上报时明确说"未上报"，不猜）。 */
+const tierTextOf = (tier?: string | null): string => {
+  const meta = tierMetaOf(tier);
+  if (meta) return `${meta.label}（${meta.hint}）`;
+  return '未上报';
+};
 
 // ----------------- 思考链 (CoT) 卡片 -----------------
 
@@ -229,6 +270,39 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({
   );
 };
 
+// ----------------- 阶段六 P1 · 严格模式容量错误视图 -----------------
+
+/**
+ * 严格模式下的 503 ``no_capacity`` / 504 ``dispatch_timeout`` 友好视图。
+ *
+ * 关键口径：**本次未产生服务、未产生费用**（网关已把预扣按 WAIVED 原路释放），
+ * 所以文案不能吓唬用户，也不能让他以为钱被扣了。
+ */
+const CapacityErrorView: React.FC<{ error: CapacityError }> = ({ error }) => {
+  const timeout = error.code === 'dispatch_timeout';
+  const title = timeout ? '⏳ 算力节点响应超时' : '🧊 算力池当前没有可用节点';
+  const fallback = timeout
+    ? '算力节点响应超时，本次请求未产生服务、未产生费用，请稍后重试'
+    : '算力池当前没有可用节点，本次请求未产生服务、未产生费用，请稍后重试';
+  const retry = error.retryAfterSec ? `建议 ${error.retryAfterSec} 秒后重试` : '建议稍后重试';
+  return (
+    <View style={styles.capacityCard} testID="playground-capacity-error">
+      <Text style={styles.capacityTitle} testID="playground-capacity-title">
+        {title}
+      </Text>
+      <Text style={styles.capacityBody} testID="playground-capacity-message">
+        {error.message || fallback}
+      </Text>
+      <Text style={styles.capacityHint} testID="playground-capacity-retry">
+        {retry} · 本次未计费
+      </Text>
+      <Text style={styles.capacityCode} testID="playground-capacity-code">
+        {error.code}
+      </Text>
+    </View>
+  );
+};
+
 // ----------------- 性能统计条 -----------------
 
 const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
@@ -274,6 +348,29 @@ const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
     ) : (
       <View style={styles.breakdownRow} testID="playground-cost-breakdown">
         <Text style={styles.breakdownTitle}>账单小票</Text>
+
+        {/* 阶段六 D10 · 档位拆开展示：节点硬件档位 ≠ 模型需求档位。
+            两个都可能是空串（节点未上报显存 / 模型无显存门槛）⇒ 明确写「未上报」。 */}
+        <View style={styles.tierRow} testID="playground-receipt-tiers">
+          <View style={styles.tierChip} testID="playground-tier-node">
+            <Text style={styles.tierChipLabel}>节点档位</Text>
+            <Text style={styles.tierChipValue}>{tierTextOf(stats.nodeTier)}</Text>
+          </View>
+          <View style={styles.tierChip} testID="playground-tier-model">
+            <Text style={styles.tierChipLabel}>模型需求档位</Text>
+            <Text style={styles.tierChipValue}>{tierTextOf(stats.modelCapabilityClass)}</Text>
+          </View>
+        </View>
+
+        {/* 阶段六 D5/D6 · 免单（模拟回答 / 断流）⇒ 本次 $0，必须说清楚「为什么是 0」 */}
+        {stats.waived ? (
+          <View style={styles.waivedRow} testID="playground-receipt-waived">
+            <Text style={styles.waivedText}>
+              ⚠️ 本次免单 · $0（{stats.waiveReason || stats.streamError || '未产生可计费服务'}）
+            </Text>
+          </View>
+        ) : null}
+
         <Text style={styles.breakdownItem} testID="playground-cost-compute">
           算力费 ${stats.baseComputeUsd.toFixed(6)}
         </Text>
@@ -285,6 +382,7 @@ const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
         </Text>
         <Text style={[styles.breakdownItem, styles.breakdownTotal]} testID="playground-receipt-total">
           买家实付 ${stats.costUsd.toFixed(6)} · {stats.cgas.toFixed(1)} CGas
+          {stats.waived ? ' · 已免单' : ''}
         </Text>
       </View>
     )}
@@ -350,6 +448,14 @@ const PlaygroundCard: React.FC = () => {
       ttft_ms?: number;
       throughput_tps?: number;
       perf_source?: string;
+      // 阶段六 D10 · 档位（节点硬件档位 / 模型需求档位）
+      node_tier?: string;
+      model_capability_class?: string;
+      // 阶段六 D5/D6 · 免单（模拟回答 / 断流 ⇒ $0）
+      waived?: boolean;
+      waive_reason?: string;
+      stream_error?: string;
+      usage_source?: string;
     } | null,
   });
 
@@ -643,6 +749,14 @@ console.log(response.choices[0].message.content);`;
                 platformTotalUsd,
                 answerSource: usage?.answer_source ?? m.answerSource,
                 perfSource,
+                // 阶段六 D10 · 档位（空串 = 未上报，前端显示「未上报」）
+                nodeTier: usage?.node_tier ?? '',
+                modelCapabilityClass: usage?.model_capability_class ?? '',
+                // 阶段六 D5/D6 · 免单
+                waived: usage?.waived === true,
+                waiveReason: usage?.waive_reason ?? '',
+                streamError: usage?.stream_error ?? '',
+                usageSource: usage?.usage_source ?? '',
               },
             }
           : m,
@@ -702,7 +816,16 @@ console.log(response.choices[0].message.content);`;
         })
         .catch((e) => {
           setMessages((prev) =>
-            prev.map((m) => (m.id === botId ? { ...m, error: describeCloudError(e) } : m)),
+            prev.map((m) =>
+              m.id === botId
+                ? {
+                    ...m,
+                    error: describeCloudError(e),
+                    // 阶段六 P1 · 严格模式容量错误（503/504）⇒ 渲染友好视图
+                    capacityError: capacityErrorOf(e) ?? undefined,
+                  }
+                : m,
+            ),
           );
           setStreaming(false);
           streamRef.current = null;
@@ -754,9 +877,11 @@ console.log(response.choices[0].message.content);`;
       onDone: () => {
         finalizeRun(botId);
       },
-      onError: (message) => {
+      onError: (message, capacity) => {
         setMessages((prev) =>
-          prev.map((m) => (m.id === botId ? { ...m, error: message } : m)),
+          prev.map((m) =>
+            m.id === botId ? { ...m, error: message, capacityError: capacity ?? undefined } : m,
+          ),
         );
         setStreaming(false);
         streamRef.current = null;
@@ -1078,7 +1203,13 @@ console.log(response.choices[0].message.content);`;
                   />
                 ) : null}
 
-                {message.error ? <Text style={styles.errorText}>⚠️ {message.error}</Text> : null}
+                {message.capacityError ? (
+                  <CapacityErrorView error={message.capacityError} />
+                ) : null}
+
+                {message.error && !message.capacityError ? (
+                  <Text style={styles.errorText}>⚠️ {message.error}</Text>
+                ) : null}
 
                 {message.content ? (
                   <Text style={styles.answerText}>
@@ -1511,6 +1642,62 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   breakdownItem: { color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 16 },
+
+  // 阶段六 D10 · 档位芯片（节点档位 / 模型需求档位）
+  tierRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 4,
+  },
+  tierChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.cardAlt,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: spacing.sm,
+    marginBottom: 4,
+  },
+  tierChipLabel: { color: colors.textMuted, fontSize: fontSize.xs },
+  tierChipValue: {
+    color: colors.cyan,
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+
+  // 阶段六 D5/D6 · 免单提示（$0）
+  waivedRow: {
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.45)',
+    backgroundColor: colors.warnSoft,
+    borderRadius: radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginBottom: 4,
+  },
+  waivedText: { color: colors.warn, fontSize: fontSize.xs, lineHeight: 16 },
+
+  // 阶段六 P1 · 严格模式容量错误视图
+  capacityCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(34, 211, 238, 0.40)',
+    backgroundColor: colors.cyanSoft,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginVertical: spacing.xs,
+  },
+  capacityTitle: { color: colors.cyan, fontSize: fontSize.md, fontWeight: '700' },
+  capacityBody: {
+    color: colors.textSecondary,
+    fontSize: fontSize.xs,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  capacityHint: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 3 },
+  capacityCode: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 1 },
 
   // 阶段五 P0 · 采样参数面板
   paramsBar: {

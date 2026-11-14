@@ -138,6 +138,14 @@ export const describeCloudError = (e: unknown, mode: 'key' | 'session' = 'key'):
   if (status === 403) return '当前账号未绑定创作者钱包，无法访问创作者接口';
   if (status === 404) return '云端网关接口不存在，请确认后端版本';
   if (status === 429) return '请求过于频繁，请稍后再试';
+  // 阶段六 P1 · 严格模式容量错误（503 no_capacity / 504 dispatch_timeout）：
+  // 这两种**不计费**，提示口径必须是「未产生服务、未产生费用」，别让用户以为白花了钱。
+  const cap = capacityErrorOf(e);
+  if (cap) {
+    return cap.code === 'dispatch_timeout'
+      ? cap.message || '算力节点响应超时，本次请求未产生服务、未产生费用，请稍后重试'
+      : cap.message || '算力池当前没有可用节点，本次请求未产生服务、未产生费用，请稍后重试';
+  }
   if (status && status >= 500) return `云端网关异常 (HTTP ${status})，请稍后重试`;
   if (err?.code === 'ECONNABORTED') return '请求超时，云端聚合耗时较长，请稍后重试';
   if (!status && err?.code === 'ERR_NETWORK') return '网络不可达，请检查到 cloud.apipaw.com 的连接';
@@ -327,7 +335,72 @@ export interface ChatUsage {
   throughput_tps?: number;
   /** 阶段五 P4 · 性能读数来源：node=后端实测 / local=前端本地计时 */
   perf_source?: string;
+  /** 阶段六 D10 · **节点硬件档位**（C0~C3；空串 = 节点未上报显存） */
+  node_tier?: string;
+  /** 阶段六 D10 · **模型需求档位**（C0~C3）—— 与节点档位是两回事 */
+  model_capability_class?: string;
+  /** 阶段六 D5/D6 · 免单标记（模拟回答 / 断流 ⇒ 本次 $0） */
+  waived?: boolean;
+  /** 阶段六 · 免单原因（后端回传，如「流未完成（断流）」） */
+  waive_reason?: string;
+  /** 阶段六 D6 · 断流原因（流未完成时的错误码，如 backend_unavailable） */
+  stream_error?: string;
+  /** 阶段六 P1 · 用量来源：node=节点真实上报 / estimate=估算 */
+  usage_source?: string;
 }
+
+// ----------------- 阶段六 P1 · 严格模式容量错误 -----------------
+
+/**
+ * 严格模式（网关 ``APIPAW_DISPATCH_STRICT=1``）下的容量错误。
+ *
+ * 网关返回 503 ``no_capacity``（算力池没有可用节点）或 504 ``dispatch_timeout``
+ * （节点接了但没回），并带 ``Retry-After`` 头。两种情况**都不计费**
+ * （预扣已按 WAIVED 原路释放），所以前端要给的是「友好提示 + 何时可重试」，
+ * 而不是一坨 HTTP 错误码。
+ */
+export interface CapacityError {
+  code: 'no_capacity' | 'dispatch_timeout';
+  status: number;
+  message: string;
+  /** 网关建议的重试等待秒数（来自 Retry-After 头） */
+  retryAfterSec?: number;
+}
+
+const CAPACITY_CODES = ['no_capacity', 'dispatch_timeout'];
+
+/** 从网关错误响应体里认出容量错误（认不出返回 null）。 */
+export const extractCapacityError = (
+  status: number,
+  body: unknown,
+  retryAfter?: string | null,
+): CapacityError | null => {
+  const err = (body as { error?: { code?: string; message?: string }; detail?: string } | null) ?? null;
+  const code = String(err?.error?.code || '');
+  if (!code || CAPACITY_CODES.indexOf(code) < 0) return null;
+  const secs = Number(retryAfter ?? '');
+  return {
+    code: code as CapacityError['code'],
+    status,
+    message: String(err?.error?.message || err?.detail || ''),
+    retryAfterSec: Number.isFinite(secs) && secs > 0 ? secs : undefined,
+  };
+};
+
+/** 从 axios 异常里提取容量错误（严格模式下的 503/504）。 */
+export const capacityErrorOf = (e: unknown): CapacityError | null => {
+  const err = e as {
+    response?: { status?: number; data?: unknown; headers?: Record<string, unknown> };
+  };
+  const status = Number(err?.response?.status || 0);
+  if (!status) return null;
+  const headers = (err?.response?.headers || {}) as Record<string, unknown>;
+  const retryAfter =
+    (headers['retry-after'] as string | undefined) ??
+    (headers['Retry-After'] as string | undefined) ??
+    null;
+  return extractCapacityError(status, err?.response?.data, retryAfter);
+};
 
 // ----------------- 创作者端类型 (CreatorEx) -----------------
 
@@ -679,7 +752,9 @@ export interface StreamChatOptions {
   onContent?: (delta: string) => void;
   onUsage?: (usage: ChatUsage) => void;
   onDone?: () => void;
-  onError?: (message: string) => void;
+  /** 阶段六 P1 · 容量错误（严格模式 503/504）会作为第二参数带出来，
+   *  让 UI 能渲染「友好提示视图」而不是一坨错误文本。 */
+  onError?: (message: string, capacity?: CapacityError | null) => void;
 }
 
 export interface StreamChatHandle {
@@ -701,10 +776,10 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
   /** 是否已经收到过正文 —— 用于区分「流被截断」与「流正常结束」 */
   let receivedContent = false;
 
-  const fail = (message: string) => {
+  const fail = (message: string, capacity?: CapacityError | null) => {
     if (settled) return;
     settled = true;
-    onError?.(message);
+    onError?.(message, capacity ?? null);
   };
 
   const finish = () => {
@@ -794,13 +869,22 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
     }
 
     let message = `推理请求失败 (HTTP ${xhr.status})`;
+    let capacity: CapacityError | null = null;
     try {
       const parsed = JSON.parse(xhr.responseText);
       message = parsed?.error?.message || parsed?.detail || message;
+      // 阶段六 P1 · 严格模式：503 no_capacity / 504 dispatch_timeout
+      let retryAfter: string | null = null;
+      try {
+        retryAfter = xhr.getResponseHeader('Retry-After');
+      } catch {
+        /* 某些环境不支持读响应头 */
+      }
+      capacity = extractCapacityError(xhr.status, parsed, retryAfter);
     } catch {
       /* 保留默认错误信息 */
     }
-    fail(message);
+    fail(message, capacity);
   };
 
   xhr.onprogress = () => {
