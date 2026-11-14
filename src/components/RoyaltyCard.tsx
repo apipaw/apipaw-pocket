@@ -121,7 +121,8 @@ const RoyaltyTrendChart: React.FC<{ data: RoyaltyResponse | null; width: number 
 
 /**
  * 创作者版税大盘 (CreatorEx)
- * 展示 15% 版税实时明细、Token 调用走势与一键提现。
+ * 展示版税实时明细、Token 调用走势与一键提现；生效比例以服务端 `royalty_rate` 为准
+ * （阶段六 P2 起不再写死 15%）。
  */
 const RoyaltyCard: React.FC = () => {
   const { creatorWallet } = usePawStore();
