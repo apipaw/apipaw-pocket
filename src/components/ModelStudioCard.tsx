@@ -11,10 +11,16 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { usePawStore } from '../store/usePawStore';
 import {
+  ModelPriceRequest,
   ParsedModel,
+  PlatformPricing,
   describeCloudError,
+  fetchCreatorIdentity,
+  fetchCreatorPriceRequests,
+  fetchPlatformPricing,
   parseCreatorModel,
   registerCreatorModel,
+  submitCreatorPriceRequest,
 } from '../api/cloudClient';
 import Slider from './Slider';
 import { colors, fontSize, radius, spacing } from '../theme';
@@ -45,9 +51,21 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
 /**
  * 模型发布工作台 (CreatorEx)
  * 流程：抓取 HuggingFace 链接 → mock 解析元数据 → 调节 VRAM 阈值 → 预览 PAWMODEL → 提交上架
+ *
+ * 阶段六 P3 的两条纪律在这里落地：
+ * 1. **身份以服务端为准**（D3）：钱包地址来自 ``GET /api/v1/creator/identity``，
+ *    前端**不再**硬编码演示钱包；未登录时明确提示，而不是替用户编一个身份。
+ * 2. **定价受控**：上架价取服务端**平台受控价**；想要别的价 ⇒ 提交**改价申请**，
+ *    OWNER 审批后才生效（未审批前线上计费基线分毫不动）。
  */
 const ModelStudioCard: React.FC = () => {
-  const { creatorWallet, setCreatorModelId, setTopologyModelId } = usePawStore();
+  const {
+    creatorWallet,
+    setCreatorIdentity,
+    creatorModelId,
+    setCreatorModelId,
+    setTopologyModelId,
+  } = usePawStore();
 
   const [hfUrl, setHfUrl] = useState(DEFAULT_HF_URL);
   const [parsed, setParsed] = useState<ParsedModel | null>(null);
@@ -57,6 +75,50 @@ const ModelStudioCard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /** 平台受控价（服务端下发，前端不再写死） */
+  const [pricing, setPricing] = useState<PlatformPricing | null>(null);
+  /** 创作者期望价（留空 = 接受平台受控价） */
+  const [wantPrompt, setWantPrompt] = useState('');
+  const [wantCompletion, setWantCompletion] = useState('');
+  const [priceRequests, setPriceRequests] = useState<ModelPriceRequest[]>([]);
+  const [pricingBusy, setPricingBusy] = useState(false);
+
+  // ---- 身份 + 平台价 + 我的改价申请（进页面就拉一次）----
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const identity = await fetchCreatorIdentity();
+        if (!cancelled) setCreatorIdentity(identity.author_wallet, identity.creator_id);
+      } catch (e: any) {
+        // 未登录 / 未绑定创作者身份 —— 不打扰用户，只是拿不到身份
+        if (!cancelled) setCreatorIdentity('', '');
+      }
+      try {
+        const p = await fetchPlatformPricing();
+        if (!cancelled) setPricing(p);
+      } catch {
+        /* 平台价拿不到时用 0，让上架请求走服务端默认值 */
+      }
+      try {
+        const list = await fetchCreatorPriceRequests();
+        if (!cancelled) setPriceRequests(list.requests || []);
+      } catch {
+        /* 无权限或无数据 —— 列表保持空 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setCreatorIdentity]);
+
+  const defaultPrompt = pricing?.prompt_price_per_1k ?? 0;
+  const defaultCompletion = pricing?.completion_price_per_1k ?? 0;
+
+  const parseNum = (raw: string, fallback: number): number => {
+    const v = parseFloat(raw.trim());
+    return Number.isFinite(v) && v > 0 ? v : fallback;
+  };
 
   const handleParse = useCallback(async () => {
     setError(null);
@@ -100,10 +162,17 @@ const ModelStudioCard: React.FC = () => {
     setSuccess(null);
     setSubmitting(true);
     try {
-      await registerCreatorModel({
+      // ⚠️ 期望价留空 ⇒ 直接用平台受控价上架（服务端同样会再兜一次底）。
+      const wantPromptPrice = wantPrompt.trim() ? parseNum(wantPrompt, defaultPrompt) : defaultPrompt;
+      const wantCompletionPrice = wantCompletion.trim()
+        ? parseNum(wantCompletion, defaultCompletion)
+        : defaultCompletion;
+      const res = await registerCreatorModel({
         hf_url: parsed.hf_url,
         model_id: parsed.model_id,
         display_name: parsed.display_name,
+        // ⚠️ 钱包仍会带上，但**服务端一律忽略**客户端值（D3）—— 这里传的是
+        //    服务端回填的同一个地址，不是用户随便填的。
         author_wallet: creatorWallet,
         min_vram_gb: vramGb,
         num_hidden_layers: parsed.num_hidden_layers,
@@ -112,19 +181,70 @@ const ModelStudioCard: React.FC = () => {
         quantization: parsed.quantization,
         total_params: parsed.total_params,
         context_window: parsed.context_window,
-        prompt_price_per_1k: 0.35,
-        completion_price_per_1k: 0.42,
+        prompt_price_per_1k: wantPromptPrice,
+        completion_price_per_1k: wantCompletionPrice,
         description: `${parsed.display_name} · 社区创作者上架模型，含 15% 创作者版税叠加结算`,
       });
       setCreatorModelId(parsed.model_id);
       setTopologyModelId(parsed.model_id);
-      setSuccess(`✅ 模型 ${parsed.model_id} 已上架生态，已同步至买家 Playground 模型列表`);
+      const pricingBlock = res.pricing;
+      if (pricingBlock && pricingBlock.price_request) {
+        setSuccess(
+          `✅ 模型 ${parsed.model_id} 已上架（生效价 $${pricingBlock.effective_prompt_price_per_1k}/$${pricingBlock.effective_completion_price_per_1k} 每千 token）；` +
+            '期望价已提交改价申请，待 OWNER 审批后生效',
+        );
+        try {
+          const list = await fetchCreatorPriceRequests();
+          setPriceRequests(list.requests || []);
+        } catch {
+          /* 列表刷新失败不影响上架结果 */
+        }
+      } else {
+        setSuccess(`✅ 模型 ${parsed.model_id} 已上架生态，已同步至买家 Playground 模型列表`);
+      }
     } catch (e: any) {
       setError(describeCloudError(e));
     } finally {
       setSubmitting(false);
     }
-  }, [parsed, creatorWallet, vramGb, setCreatorModelId, setTopologyModelId]);
+  }, [
+    parsed,
+    creatorWallet,
+    vramGb,
+    wantPrompt,
+    wantCompletion,
+    defaultPrompt,
+    defaultCompletion,
+    setCreatorModelId,
+    setTopologyModelId,
+  ]);
+
+  /** 单独提交一笔改价申请（针对已上架模型） */
+  const handlePriceRequest = useCallback(async () => {
+    const modelId = (parsed?.model_id || creatorModelId || '').trim();
+    if (!modelId) {
+      setError('请先解析并上架模型，再提交改价申请');
+      return;
+    }
+    setError(null);
+    setSuccess(null);
+    setPricingBusy(true);
+    try {
+      await submitCreatorPriceRequest(
+        modelId,
+        parseNum(wantPrompt, defaultPrompt),
+        parseNum(wantCompletion, defaultCompletion),
+        '创作者在工作台申请调整上架单价',
+      );
+      setSuccess(`📝 已提交 ${modelId} 的改价申请，待 OWNER 审批后生效（当前线上价不变）`);
+      const list = await fetchCreatorPriceRequests();
+      setPriceRequests(list.requests || []);
+    } catch (e: any) {
+      setError(describeCloudError(e));
+    } finally {
+      setPricingBusy(false);
+    }
+  }, [parsed, creatorModelId, wantPrompt, wantCompletion, defaultPrompt, defaultCompletion]);
 
   const layers = parsed?.num_hidden_layers ?? 28;
 
@@ -169,6 +289,98 @@ const ModelStudioCard: React.FC = () => {
             <Text style={styles.primaryBtnText}>解析模型元数据</Text>
           )}
         </TouchableOpacity>
+      </View>
+
+      {/* 创作者身份（D3）—— **始终可见**：身份是"我是谁"，与是否解析过模型无关 */}
+      <View style={styles.walletRow}>
+        <Text style={styles.walletLabel}>创作者钱包 (身份)</Text>
+        <Text style={styles.walletValue} testID="studio-creator-wallet">
+          {creatorWallet || '未绑定 —— 请先连接钱包登录'}
+        </Text>
+      </View>
+
+      {/* 步骤 5 —— 定价（平台受控 + 改价申请）—— 始终可见：
+          改价申请针对的是**已上架模型**，不该要求用户先重新解析一遍 HF 链接 */}
+      <View style={styles.stepBlock}>
+        <View style={styles.stepHeader}>
+          <Text style={styles.stepBadge}>5</Text>
+          <Text style={styles.stepTitle}>上架定价（平台受控）</Text>
+        </View>
+
+        <View style={styles.metaGrid}>
+          <View style={styles.metaCell}>
+            <Text style={styles.metaLabel}>平台提示词价</Text>
+            <Text style={styles.metaValue} testID="studio-default-prompt-price">
+              ${defaultPrompt.toFixed(2)}
+            </Text>
+          </View>
+          <View style={styles.metaCell}>
+            <Text style={styles.metaLabel}>平台输出价</Text>
+            <Text style={styles.metaValue}>${defaultCompletion.toFixed(2)}</Text>
+          </View>
+          <View style={styles.metaCell}>
+            <Text style={styles.metaLabel}>可申请区间</Text>
+            <Text style={styles.metaValueSmall}>
+              ${(pricing?.min_price_per_1k ?? 0).toFixed(2)} ~ $
+              {(pricing?.max_price_per_1k ?? 0).toFixed(2)}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.priceHint}>
+          上架价一律按平台受控价生效（每千 token）。想要别的价，请填下面的期望价并提交
+          <Text style={styles.priceHintStrong}>改价申请</Text>
+          ，OWNER 审批后才会生效 —— 审批前线上计费价分毫不动。
+        </Text>
+
+        <View style={styles.priceRow}>
+          <TextInput
+            testID="studio-want-prompt-price"
+            style={[styles.input, styles.priceInput]}
+            value={wantPrompt}
+            onChangeText={setWantPrompt}
+            placeholder={`期望提示词价（留空 = $${defaultPrompt.toFixed(2)}）`}
+            placeholderTextColor={colors.textMuted}
+            keyboardType="numeric"
+          />
+          <TextInput
+            testID="studio-want-completion-price"
+            style={[styles.input, styles.priceInput]}
+            value={wantCompletion}
+            onChangeText={setWantCompletion}
+            placeholder={`期望输出价（留空 = $${defaultCompletion.toFixed(2)}）`}
+            placeholderTextColor={colors.textMuted}
+            keyboardType="numeric"
+          />
+        </View>
+
+        <TouchableOpacity
+          testID="studio-price-request-btn"
+          style={[styles.secondaryBtn, pricingBusy && styles.btnDisabled]}
+          onPress={handlePriceRequest}
+          disabled={pricingBusy}
+          activeOpacity={0.8}
+        >
+          {pricingBusy ? (
+            <ActivityIndicator color={colors.purple} size="small" />
+          ) : (
+            <Text style={styles.secondaryBtnText}>提交改价申请（需 OWNER 审批）</Text>
+          )}
+        </TouchableOpacity>
+
+        {priceRequests.length > 0 ? (
+          <View style={styles.requestList} testID="studio-price-requests">
+            {priceRequests.slice(0, 5).map((req) => (
+              <View key={req.id} style={styles.requestRow}>
+                <Text style={styles.requestModel}>{req.model_id}</Text>
+                <Text style={styles.requestStatus}>
+                  {req.status} · ${req.prompt_price_per_1k}/$
+                  {req.completion_price_per_1k}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       {error ? (
@@ -265,14 +477,9 @@ const ModelStudioCard: React.FC = () => {
                 </Text>
               </ScrollView>
             </View>
-
-            <View style={styles.walletRow}>
-              <Text style={styles.walletLabel}>创作者钱包 (身份)</Text>
-              <Text style={styles.walletValue}>{creatorWallet}</Text>
-            </View>
           </View>
 
-          {/* 步骤 5 —— 提交 */}
+          {/* 步骤 6 —— 提交 */}
           <TouchableOpacity
             testID="studio-submit-btn"
             style={[styles.primaryBtn, submitting && styles.btnDisabled]}
@@ -440,6 +647,33 @@ const styles = StyleSheet.create({
     marginLeft: spacing.md,
     textAlign: 'right',
   },
+
+  priceHint: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    lineHeight: 16,
+    marginTop: spacing.md,
+  },
+  priceHintStrong: { color: colors.purple, fontWeight: '700' },
+  priceRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  priceInput: { flex: 1, marginBottom: spacing.sm },
+  secondaryBtn: {
+    backgroundColor: colors.purpleSoft,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.purple,
+  },
+  secondaryBtnText: { color: colors.purple, fontWeight: '800', fontSize: fontSize.sm },
+  requestList: { marginTop: spacing.md, gap: spacing.xs },
+  requestRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  requestModel: { color: colors.textSecondary, fontSize: 12, fontFamily: 'monospace' },
+  requestStatus: { color: colors.textMuted, fontSize: 12 },
 });
 
 export default ModelStudioCard;

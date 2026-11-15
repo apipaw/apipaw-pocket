@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { HostTab, hydrateSession, usePawStore } from './src/store/usePawStore';
 import {
+  fetchCreatorIdentity,
   fetchOwnerDashboard,
   fetchOwnerRevenue,
   fetchNetworkHealth,
@@ -29,6 +30,9 @@ import ModelStudioCard from './src/components/ModelStudioCard';
 import PipelineMeshCard from './src/components/PipelineMeshCard';
 import RoyaltyCard from './src/components/RoyaltyCard';
 import NodeGovernanceCard from './src/components/NodeGovernanceCard';
+import NodePayoutCard from './src/components/NodePayoutCard';
+import PricingApprovalCard from './src/components/PricingApprovalCard';
+import PublicNodeCard from './src/components/PublicNodeCard';
 import KeyIssuePanel from './src/components/KeyIssuePanel';
 import WalletPanel from './src/components/WalletPanel';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
@@ -64,6 +68,7 @@ export default function App() {
     sessionToken,
     sessionWallet,
     sessionRole,
+    setCreatorIdentity,
   } = usePawStore();
   const { width } = useWindowDimensions();
   const wide = width >= WIDE_BREAKPOINT;
@@ -143,6 +148,36 @@ export default function App() {
   useEffect(() => {
     injectWebTheme();
   }, []);
+
+  /**
+   * **创作者身份绑定（阶段六 P3-3 · D3）** —— 钱包即身份。
+   *
+   * 会话一建立就把 ``creatorWallet`` / ``creatorId`` 换成**服务端权威**回填值，
+   * 不再是本地硬编码的演示地址。这样创作者大盘、版税申请、上架与提现
+   * 无论从哪个 Tab 进入，绑的都是当前真实登录身份。
+   */
+  useEffect(() => {
+    if (!sessionToken) {
+      setCreatorIdentity('', '');
+      return;
+    }
+    let cancelled = false;
+    fetchCreatorIdentity()
+      .then((identity) => {
+        if (cancelled) return;
+        setCreatorIdentity(identity.author_wallet, identity.creator_id);
+      })
+      .catch((e) => {
+        // 非创作者身份 / 后端未配置 —— 清空，绝不保留上一个身份的残留
+        if (!cancelled) {
+          setCreatorIdentity('', '');
+          console.log('创作者身份读取失败:', e);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionToken]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -349,6 +384,7 @@ export default function App() {
             </View>
 
             <PlaygroundCard />
+            <PublicNodeCard />
             <AnalyticsCard />
           </View>
         ) : (
@@ -460,6 +496,9 @@ export default function App() {
                   )}
                 </Surface>
 
+                {/* 节点收益提现（阶段六 P3-4）—— 内部台账 + 链上 PAW 通道 */}
+                <NodePayoutCard />
+
                 {(dashboard?.nodes ?? []).map((node) => (
                   <View
                     key={node.node_id}
@@ -517,6 +556,7 @@ export default function App() {
             {hostTab === 'GOVERNANCE' && (
               <View style={styles.column}>
                 <NodeGovernanceCard />
+                <PricingApprovalCard />
               </View>
             )}
           </View>

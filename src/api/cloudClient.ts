@@ -57,8 +57,13 @@ const OWNER_PATH_PREFIX = '/api/v1/owner';
  * 若不把它们算进「业主路径」，拦截器只会发买家 API Key —— 只有钱包会话、
  * 没有 API Key 的业主会直接吃到 401。这两个前缀同样按「会话优先、回落 API Key」
  * 处理。
+ *
+ * 阶段六 P3 追加两条：
+ * - ``/api/v1/creator/`` —— 创作者身份是**钱包身份**（D3），必须走钱包会话；
+ *   否则只有买家 API Key 的会话拿到的会是**别人的**创作者钱包。
+ * - ``/api/v1/node/``   —— 节点收益 / 提现（业主钱包口径）。
  */
-const OWNER_LIKE_PATH_PREFIXES = ['/api/v1/nodes/'];
+const OWNER_LIKE_PATH_PREFIXES = ['/api/v1/nodes/', '/api/v1/creator/', '/api/v1/node/'];
 
 const isJwtOnlyPath = (url: string | undefined): boolean => {
   if (!url) return false;
@@ -850,10 +855,27 @@ export const fetchCreatorModels = async (): Promise<{
   return res.data;
 };
 
-/** 创作者发布模型 —— 落现有 models 表 (tier=CREATOR) */
+/** 创作者发布模型 —— 落现有 models 表 (tier=CREATOR)
+ *
+ * ⚠️ 阶段六 P3：**上架价以服务端受控价为准**，客户端传的 `author_wallet`
+ * 与价格一律被服务端忽略；期望价 ≠ 生效价时，服务端会落一条**改价申请**
+ * （`pricing.price_request`），OWNER 审批后才生效。
+ */
 export const registerCreatorModel = async (
   payload: RegisterCreatorModelPayload,
-): Promise<{ status: string; message: string; model: Record<string, unknown> }> => {
+): Promise<{
+  status: string;
+  message: string;
+  model: Record<string, unknown>;
+  pricing?: {
+    effective_prompt_price_per_1k: number;
+    effective_completion_price_per_1k: number;
+    requested_prompt_price_per_1k: number;
+    requested_completion_price_per_1k: number;
+    price_request: Record<string, unknown> | null;
+    note: string;
+  };
+}> => {
   const res = await cloudApi.post('/api/v1/creator/models/register', payload);
   return res.data;
 };
@@ -887,6 +909,198 @@ export const withdrawCreatorRoyalty = async (
   const res = await cloudApi.post('/api/v1/creator/royalty/withdraw', {
     amount_usd: amountUsd,
     note,
+  });
+  return res.data;
+};
+
+// ----------------- 阶段六 P3 · 身份 / 定价 / 节点收益 -----------------
+
+/** 当前登录身份的**服务端权威**创作者口径（D3）。 */
+export interface CreatorIdentity {
+  account_handle: string;
+  role: string;
+  creator_id: string;
+  author_wallet: string;
+}
+
+export const fetchCreatorIdentity = async (): Promise<CreatorIdentity> => {
+  const res = await cloudApi.get('/api/v1/creator/identity');
+  return res.data;
+};
+
+/** 平台受控价（公开）：上架默认单价 + 改价区间。 */
+export interface PlatformPricing {
+  prompt_price_per_1k: number;
+  completion_price_per_1k: number;
+  min_price_per_1k: number;
+  max_price_per_1k: number;
+  usd_per_paw: number;
+  note: string;
+}
+
+export const fetchPlatformPricing = async (): Promise<PlatformPricing> => {
+  const res = await cloudApi.get('/api/v1/pricing/default');
+  return res.data;
+};
+
+export interface ModelPriceRequest {
+  id: number;
+  model_id: string;
+  author_wallet: string;
+  status: string;
+  prompt_price_per_1k: number;
+  completion_price_per_1k: number;
+  current_prompt_price_per_1k: number;
+  current_completion_price_per_1k: number;
+  reason: string;
+  decided_by: string;
+  decision_note: string;
+  created_at: number;
+  decided_at: number | null;
+}
+
+/** 创作者提交**期望单价**申请（只落申请，OWNER 审批后才生效）。 */
+export const submitCreatorPriceRequest = async (
+  modelId: string,
+  promptPricePer1k: number,
+  completionPricePer1k: number,
+  reason: string = '',
+): Promise<{ status: string; request: ModelPriceRequest; note: string }> => {
+  const res = await cloudApi.post('/api/v1/creator/models/pricing/request', {
+    model_id: modelId,
+    prompt_price_per_1k: promptPricePer1k,
+    completion_price_per_1k: completionPricePer1k,
+    reason,
+  });
+  return res.data;
+};
+
+/** 创作者查看自己的改价申请 */
+export const fetchCreatorPriceRequests = async (
+  limit: number = 50,
+): Promise<{ requests: ModelPriceRequest[] }> => {
+  const res = await cloudApi.get('/api/v1/creator/models/pricing/requests', {
+    params: { limit },
+  });
+  return res.data;
+};
+
+/** OWNER 审批队列：改价申请 */
+export const fetchOwnerPriceRequests = async (
+  status: string = 'PENDING',
+  limit: number = 50,
+): Promise<{ requests: ModelPriceRequest[] }> => {
+  const res = await cloudApi.get('/api/v1/owner/pricing/requests', {
+    params: { status, limit },
+  });
+  return res.data;
+};
+
+/** OWNER 签字：批准 / 驳回改价申请 */
+export const decideOwnerPriceRequest = async (
+  requestId: number,
+  approve: boolean,
+  note: string = '',
+): Promise<{ status: string; result: Record<string, unknown> }> => {
+  const res = await cloudApi.post(`/api/v1/owner/pricing/request/${requestId}/decide`, {
+    approve,
+    note,
+  });
+  return res.data;
+};
+
+/** 计量对齐评估（OWNER）：估算 vs 真实 token 的偏差 */
+export interface MeteringAccuracy {
+  window_minutes: number;
+  samples: number;
+  verdict: string;
+  note: string;
+  by_source?: Array<{ src: string; c: number }>;
+  prompt?: Record<string, number>;
+  completion?: Record<string, number>;
+}
+
+export const fetchMeteringAccuracy = async (
+  windowMinutes: number = 1440,
+): Promise<MeteringAccuracy> => {
+  const res = await cloudApi.get('/api/v1/owner/metering/accuracy', {
+    params: { window_minutes: windowMinutes },
+  });
+  return res.data;
+};
+
+/** 公开的节点身份视图（买家可读，不含钱包 / 收益 / 密钥）。 */
+export interface PublicNode {
+  node_id: string;
+  node_name: string;
+  hardware_type: string;
+  agent_version: string;
+  status: string;
+  status_label: string;
+  models: string[];
+  vram_total_gb: number;
+  node_tier: string;
+  alive: boolean;
+}
+
+export const fetchPublicNodes = async (): Promise<{ nodes: PublicNode[]; count: number }> => {
+  const res = await cloudApi.get('/api/v1/network/nodes');
+  return res.data;
+};
+
+export interface NodeEarnings {
+  owner_wallet: string;
+  earned_usd: number;
+  withdrawn_usd: number;
+  pending_usd: number;
+  available_usd: number;
+  tokens: number;
+  requests: number;
+  nodes: Array<{ node_id: string; earned_usd: number; tokens: number; requests: number }>;
+  withdrawals: Array<{
+    id: number;
+    node_id: string;
+    amount_usd: number;
+    amount_paw: number;
+    channel: string;
+    status: string;
+    tx_hash: string;
+    created_at: number;
+  }>;
+}
+
+/** 节点业主收益大盘（钱包会话口径） */
+export const fetchNodeEarnings = async (): Promise<NodeEarnings> => {
+  const res = await cloudApi.get('/api/v1/node/earnings');
+  return res.data;
+};
+
+/** 登记一笔节点提现（内部 USD 台账） */
+export const submitNodeWithdrawal = async (
+  amountUsd: number,
+  nodeId: string = '',
+  note: string = '',
+): Promise<{
+  status: string;
+  withdrawal: { id: number; amount_usd: number; amount_paw: number; status: string };
+  payout_token_address: string;
+  chain_channel_enabled: boolean;
+}> => {
+  const res = await cloudApi.post('/api/v1/node/withdraw', {
+    amount_usd: amountUsd,
+    node_id: nodeId,
+    note,
+  });
+  return res.data;
+};
+
+/** 回填链上交易哈希（广播由业主钱包在前端完成，云端只记账） */
+export const broadcastNodeWithdrawal = async (
+  withdrawalId: number,
+  txHash: string,
+): Promise<{ status: string; result: Record<string, unknown> }> => {
+  const res = await cloudApi.post(`/api/v1/node/withdraw/${withdrawalId}/broadcast`, {
+    tx_hash: txHash,
   });
   return res.data;
 };

@@ -402,8 +402,19 @@ async function main() {
   check(usageAuth === `Bearer ${dummyApiKey}`, '普通端点带的是 API Key（未被 JWT 污染）', usageAuth.slice(0, 20) + '…');
   // ⚠️ 泄漏边界随 P5 一起改了: JWT 出现在**业主端点**是设计内的,
   //    但绝不能出现在非业主端点（买家推理 / 账务 / 分析…）。
+  //
+  // 阶段六 P3 再扩两条**会话优先**前缀（与 cloudClient 的 OWNER_LIKE_PATH_PREFIXES
+  // 保持一致）：``/api/v1/creator/``（创作者身份=钱包身份，D3）与 ``/api/v1/node/``
+  // （节点收益/提现，业主钱包口径）—— 这两类端点必须带钱包会话，
+  // 否则会回落到买家 API Key 对应的**另一个账户**的创作者钱包。
+  const SESSION_PREFIXES = [
+    '/api/v1/owner/',
+    '/api/v1/nodes/',
+    '/api/v1/creator/',
+    '/api/v1/node/',
+  ];
   const leak = netlog.filter(
-    (r) => !r.path.startsWith('/api/v1/owner/') && r.auth === `Bearer ${parsed?.token}`,
+    (r) => !SESSION_PREFIXES.some((p) => r.path.startsWith(p)) && r.auth === `Bearer ${parsed?.token}`,
   );
   check(leak.length === 0, 'JWT 没有泄漏到非业主端点', `泄漏 ${leak.length} 处`);
 

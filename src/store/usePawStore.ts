@@ -52,7 +52,17 @@ interface PawState {
 
   // ---- 创作者端 (CreatorEx) ----
   hostTab: HostTab;
+  /**
+   * 创作者钱包 —— **服务端权威**（阶段六 P3 · D3）。
+   *
+   * 🔴 此前这里写死过一个演示钱包（`0x71C7…976F`），前端拿它当"身份"，
+   *    于是任何人的上架都挂在同一个地址名下。现在初始值为空串，
+   *    由 ``GET /api/v1/creator/identity`` 回填 —— 服务端说什么就是什么，
+   *    客户端填的值一律被服务端忽略。
+   */
   creatorWallet: string;
+  /** 服务端返回的创作者 ID（同样以服务端为准） */
+  creatorId: string;
   creatorModelId: string;
   /** 当前查看拓扑的模型（与已上架模型联动） */
   topologyModelId: string;
@@ -81,7 +91,8 @@ interface PawState {
   setSelectedModelId: (modelId: string) => void;
 
   setHostTab: (tab: HostTab) => void;
-  setCreatorWallet: (wallet: string) => void;
+  /** 写入创作者身份（服务端权威回填） */
+  setCreatorIdentity: (wallet: string, creatorId?: string) => void;
   setCreatorModelId: (modelId: string) => void;
   setTopologyModelId: (modelId: string) => void;
 
@@ -102,7 +113,9 @@ export const usePawStore = create<PawState>((set) => ({
   selectedModelId: 'deepseek-r1',
 
   hostTab: 'NODES',
-  creatorWallet: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+  // 阶段六 P3 · D3：**不再硬编码**创作者钱包 —— 由服务端身份端点回填。
+  creatorWallet: '',
+  creatorId: '',
   creatorModelId: 'qwen-2.5-72b',
   topologyModelId: 'qwen-2.5-72b',
 
@@ -125,7 +138,11 @@ export const usePawStore = create<PawState>((set) => ({
   setSelectedModelId: (selectedModelId) => set({ selectedModelId }),
 
   setHostTab: (hostTab) => set({ hostTab }),
-  setCreatorWallet: (creatorWallet) => set({ creatorWallet }),
+  setCreatorIdentity: (creatorWallet, creatorId) =>
+    set({
+      creatorWallet: creatorWallet || '',
+      creatorId: creatorId !== undefined ? creatorId : usePawStore.getState().creatorId,
+    }),
   setCreatorModelId: (creatorModelId) => set({ creatorModelId }),
   setTopologyModelId: (topologyModelId) => set({ topologyModelId }),
 

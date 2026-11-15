@@ -327,7 +327,7 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 | **P0** | 网关：**D5 模拟回答零计费 + 严格模式 503/504 退预扣** · **D10 等级语义拆分（`node_tier` / `model_capability_class`）** · **D11 C0 档可达** · **关闭未鉴权上架旁路** · 修 Agent 转发强制 `stream:true` · Agent 后端抽象骨架（Ollama 底座 + vLLM/llama.cpp 预留位，D1）· 模型清单上报字段 | `APIPAW_DISPATCH_STRICT`（默认 0）· `APIPAW_SIMULATED_FREE`（默认 1）· `APIPAW_COMPUTE_CLASS_TIER_MAX_GB`（默认 C0=8/C1=16/C2=48） | 阶段五 P4 已封板 |
 | **P1** | Agent：Ollama/vLLM/llama.cpp 三后端可用 · 真实 usage 优先 · 节点自助注册 + OWNER 审批激活（D3）· 节点收益**内部 USD** 提现闭环（D2）· 端到端真流式 | `APIPAW_REAL_STREAM`（默认 0） | P0 严格模式上线且观察 48h |
 | **P2** ✅ | 网关：模型↔节点匹配 · 短等待队列 · 可观测端点（派单统计 + 网络健康）· **创作者版税申请+OWNER 审批**（D4 路 A）· 节点治理页 · Agent 断流错误语义（A4） | `APIPAW_DISPATCH_QUEUE_WAIT_SEC`（默认 0，**实际开关名以此为准**；蓝图早稿写的 `APIPAW_QUEUE_WAIT_SEC` 已作废） | P1 至少 1 台真节点在线 |
-| **P3** | 计量对齐：估算 vs 真实计量偏差评估 · 真实 TTFT 口径生效 · 前端展示节点身份/等级 · **链上 PAW 提现通道**（D2 后置项） | — | P1/P2 稳定 |
+| **P3** ✅ | 计量对齐：估算 vs 真实计量偏差评估 · 真实 TTFT 口径生效 · 前端展示节点身份/等级 · **链上 PAW 提现通道**（D2 后置项） | `APIPAW_PAYOUT_TOKEN_ADDRESS` / `APIPAW_PAYOUT_RECIPIENT`（**默认留空 ⇒ 链上通道关闭**） | P1/P2 稳定 |
 | **P4** | 常态化：`APIPAW_DISPATCH_ENABLED=1` **前置条件全部满足** · 真实节点灰度 → 全量 · 模拟回答模式降级为"演示开关" | `APIPAW_DISPATCH_ENABLED` | P0~P3 全部验收通过 |
 
 **灰度纪律（承阶段五 P3 教训）**：
@@ -499,3 +499,55 @@ NET == BAL == 1016.037562        双库 integrity_check=ok
 - 冒烟自建的 3 个账户、1 个测试模型、全部 `dispatch_log` 行**已随脚本自动清理**。
 - 另清理阶段五遗留的**模拟节点行** `nodes_history.apipaw-cloud-sim`（920 tokens / 489.24725 PAW 假收益；该节点只存在于历史结算记录里，不在 `node_registry` 中，属演示种子数据）。保留真实节点行 `node_default_001`。
 - ⚠️ 9 条 `usage_logs` 行的 `node_id` 仍指向 `apipaw-cloud-sim`（历史演示用量行，属基线 27 行之一，**未动**）。
+
+---
+
+## 附录 D · 阶段六 P3 交付实录（2026-11-15 已上线生产）
+
+### D.1 上线内容（对照 §6 路线表 P3 行）
+
+| 项 | 落地位置 | 状态 |
+|---|---|---|
+| **A3 计量对齐**：`usage_logs` 增 `usage_source` / `perf_source` / `estimate_prompt_tokens` / `estimate_completion_tokens`；`GET /api/v1/owner/metering/accuracy` 量化「估算 vs 真实」偏差，**无样本 ⇒ `verdict=no_samples`（不编造结论）** | `server.py` + `db.py` | ✅ 已上线 |
+| **真实 TTFT 口径**：Agent 自测 `ttft_ms` / `gen_ms` / `throughput_tps` 随 DONE 帧上报（`perf` 块），云端优先用**节点自测值**；老节点无 `perf` 帧时仍回落网关观测值 | Agent v1.0.10 + `server.py` | ✅ 已上线 |
+| **模块 A2 落地**：OpenAI 兼容推理后端（**vLLM / llama.cpp**）与 Ollama 并列可用；`auto` 探测**只认显式配置的地址**，不误认 8000 端口上的无关服务 | Agent `inference_backend.py` | ✅ 已上线（Agent v1.0.10） |
+| **D3 创作者身份口径**：`GET /api/v1/creator/identity` 回**服务端权威**钱包；客户端传的 `author_wallet` **一律忽略** | `server.py`（`require_creator`） | ✅ 已上线 |
+| **D4 定价受控**：上架价**一律落平台受控价**（`PLATFORM_DEFAULT_*`），客户端直传价格被忽略；改价只能走 `model_price_requests` 申请 + **OWNER 审批**，未审批前线上计费基线**分毫不动** | `server.py` + `db.py` | ✅ 已上线 |
+| **C4 节点提现闭环**：`node_withdrawals` 台账 + `GET /api/v1/node/earnings` + `POST /api/v1/node/withdraw` + `.../broadcast`；**云端不托管私钥、不代签**，链上广播由业主钱包在前端用 ethers 完成 | `server.py` + `db.py` | ✅ 已上线 |
+| **P5 公开节点身份**：`GET /api/v1/network/nodes` 公开可读，只回白名单字段（身份 / 硬件 / 显存档位 / 模型清单 / `alive`），**不泄露钱包、密钥与收益** | `server.py` + `db.py` | ✅ 已上线 |
+| **前端**：`NodePayoutCard`（节点收益提现）· `PricingApprovalCard`（OWNER 定价审批 + 计量偏差）· `PublicNodeCard`（买家侧公开节点）· `ModelStudioCard` 上架价不再写死 | `apipaw-pocket` | ✅ 已上线（双站点根） |
+
+### D.2 开关与灰度纪律
+
+- 新增 systemd **drop-in** `/etc/systemd/system/apipaw-cloud.service.d/p6-p3.conf`：
+  `APIPAW_PAYOUT_TOKEN_ADDRESS=` / `APIPAW_PAYOUT_RECIPIENT=` —— **两个都留空**。
+  ⇒ **链上 PAW 提现通道默认关闭**（云端只登记 tx_hash，不托管私钥、不代签）。
+  链上通道要开，必须**同时**配好代币合约地址与收款地址。
+- **未新增任何生产依赖**（后端零新依赖；前端沿用既有 `ethers v6` / `axios` / `zustand`）。
+- 部署顺序：先 `deploy_backup.sh p6-p3` 备份（双库 + 代码 + 双站前端包）→ 上传代码 → 装 drop-in → `daemon-reload` → `restart` → `nginx -s reload`（**只 reload，不重启**）。
+
+### D.3 验收结果
+
+| 套件 | 结果 |
+|---|---|
+| `apipaw-cloud/test_phase6_p3.py`（沙箱，全隔离临时库） | **81/81** |
+| `apipaw-pocket/e2e/phase6-p3.cjs`（hermetic Playwright，5 场景 26 断言） | **全绿** |
+| `apipaw-pocket/e2e/wallet-login.cjs`（会话泄漏边界回归） | **全绿** |
+| Agent `test_inference_backend.py` | **29/29** |
+| Agent `test_phase6_p3_openai_backend.py` | **10/10** |
+| **生产线上冒烟** `smoke_p6_p3_prod.py` | **81/81**（计量 8 + 定价 24 + 身份 3 + 提现 15 + 公开节点 8 + 前端产物 4 + 基线 5） |
+
+### D.4 生产基线复原（分毫不差）
+
+```
+users=2  api_keys=3  usage_logs=27  balance_ledger=40  daily_spend=6
+revenue_ledger=0  models=5  model_price_requests=0  node_withdrawals=0
+NET == BAL == 1016.037562        integrity_check=ok
+```
+
+- 冒烟自建的账户（BUYER / CREATOR / OWNER）、测试模型、改价申请、提现台账、
+  测试节点（`node_registry` + `node_credentials`）、`usage_logs` 样本行、
+  临时 OWNER 会话 —— **全部随脚本自动清理**，跑前跑后行数逐项一致。
+- 🔴 **不动资金账本**是这次冒烟的关键纪律：节点收益样本用**直接 INSERT** 写
+  `usage_logs`，不走 `finalize_usage_atomic` ⇒ `balance_ledger` / `daily_spend` /
+  `revenue_ledger` **一行都不动**，NET 不受污染。
