@@ -1,6 +1,6 @@
 # 阶段六 · 算力网络蓝图（PHASE6-NETWORK-TODO）
 
-> **状态**：✅ **D1~D12 已于 2026-11-14 全部拍板**（结论见 §8）；**P0 开发进行中**
+> **状态**：✅ **D1~D12 已于 2026-11-14 全部拍板**（结论见 §8）；**P0~P4 已于 2026-11-15 全部交付并上线生产**（阶段六封板，实录见附录 C/D/E）
 > **起草**：2026-11-14 · **拍板**：2026-11-14
 > **前置**：阶段三（计费）、阶段四（Web3 鉴权）、阶段五（二元分账 / 盲派路由 / Playground）均已封板并上线生产
 > **本次触发**：阶段五 P4 收官遗留项「v2 盲派单尚未在真实商业模型 + 多节点场景下压测」已由
@@ -328,7 +328,7 @@ v2 密文盲派与 v1 明文兼容、显存门槛 + fail-open、公平轮转（�
 | **P1** | Agent：Ollama/vLLM/llama.cpp 三后端可用 · 真实 usage 优先 · 节点自助注册 + OWNER 审批激活（D3）· 节点收益**内部 USD** 提现闭环（D2）· 端到端真流式 | `APIPAW_REAL_STREAM`（默认 0） | P0 严格模式上线且观察 48h |
 | **P2** ✅ | 网关：模型↔节点匹配 · 短等待队列 · 可观测端点（派单统计 + 网络健康）· **创作者版税申请+OWNER 审批**（D4 路 A）· 节点治理页 · Agent 断流错误语义（A4） | `APIPAW_DISPATCH_QUEUE_WAIT_SEC`（默认 0，**实际开关名以此为准**；蓝图早稿写的 `APIPAW_QUEUE_WAIT_SEC` 已作废） | P1 至少 1 台真节点在线 |
 | **P3** ✅ | 计量对齐：估算 vs 真实计量偏差评估 · 真实 TTFT 口径生效 · 前端展示节点身份/等级 · **链上 PAW 提现通道**（D2 后置项） | `APIPAW_PAYOUT_TOKEN_ADDRESS` / `APIPAW_PAYOUT_RECIPIENT`（**默认留空 ⇒ 链上通道关闭**） | P1/P2 稳定 |
-| **P4** | 常态化：`APIPAW_DISPATCH_ENABLED=1` **前置条件全部满足** · 真实节点灰度 → 全量 · 模拟回答模式降级为"演示开关" | `APIPAW_DISPATCH_ENABLED` | P0~P3 全部验收通过 |
+| **P4** ✅ | 常态化：`APIPAW_DISPATCH_ENABLED=1` **前置条件全部满足** · 真实节点灰度 → 全量 · 模拟回答模式降级为"演示开关" | `APIPAW_DISPATCH_ENABLED`（+ `APIPAW_REAL_STREAM` 单独灰度） | P0~P3 全部验收通过 |
 
 **灰度纪律（承阶段五 P3 教训）**：
 1. 每个开关**单独开、单独观测、单独回滚**；**不得由部署动作顺手打开**。
@@ -551,3 +551,137 @@ NET == BAL == 1016.037562        integrity_check=ok
 - 🔴 **不动资金账本**是这次冒烟的关键纪律：节点收益样本用**直接 INSERT** 写
   `usage_logs`，不走 `finalize_usage_atomic` ⇒ `balance_ledger` / `daily_spend` /
   `revenue_ledger` **一行都不动**，NET 不受污染。
+
+---
+
+## 附录 E · 阶段六 P4 交付实录（2026-11-15 已上线生产 · 阶段六封板）
+
+### E.1 上线内容（对照 §6 路线表 P4 行）
+
+| 项 | 落地位置 | 状态 |
+|---|---|---|
+| **真实派单常态化切换 + 安全回退工具** `p4_dispatch_ctl.py`：`status`（生效开关 + 网络健康）· `enable`（**探针前置**）· `gray`（常态派单 + 真流式留灰）· `rollback`（一键回退）；单元 + drop-in **双源复核**生效值 | `apipaw-cloud` | ✅ 已上线 |
+| **硬前置探针**：`enable` 先读公开端点 `GET /api/v1/network/health` 的 `online_nodes` / `dispatchable_nodes` / `servable_models` —— **没有真实节点在线 ⇒ 拒绝开启**（工具硬拦，不靠人记事） | `p4_dispatch_ctl.py` | ✅ 已上线 |
+| **真流式派单可观测性补齐**：真流式分支此前**不落 `dispatch_log`** ⇒ 真实派单在派单统计里"看不见"；P4 补落决策元数据（`outcome=ok` + 选中节点） | `server.py` | ✅ 已上线 |
+| **演示开关降级**：前端来源徽标 `模拟回答 / 回退模拟` ⇒ **`演示模式 / 演示模式·回退`**，并明确"不产生算力费用"（对应 `APIPAW_SIMULATED_FREE=1` 零计费语义） | `apipaw-pocket` `PlaygroundCard.tsx` | ✅ 已上线（双站点根） |
+| **灰度联调工具链**：`p4_rehearsal_engine.py`（**OpenAI 兼容协议级替身**，不加载权重、不做推理，只为产出真实首字延迟与真实 usage）+ `p4_rehearsal_prod.py`（生产演练 35 项断言，跑完自动清理回基线） | `apipaw-cloud` | ✅ 已上线 |
+
+### E.2 受控灰度联调实录（真实 Agent v1.0.10 节点接入生产网关）
+
+演练对象：**真实 Agent v1.0.10 节点**（`p4_rehearse_node`，WS 隧道接入 `wss://cloud.apipaw.com/api/v1/node/stream`，
+`APIPAW_FORCE_IDLE=1` 绕开工作站前台活动导致的空闲检测误判），推理侧接 **OpenAI 兼容协议级引擎**。
+
+| 观测点 | 实测值 |
+|---|---|
+| 节点在线 | `online_nodes=1` / `dispatchable_nodes=1` / `servable_models=1` |
+| 派单 | `X-APIPaw-Dispatch: node`（**真实节点接单**，非模板回答） |
+| 真流式 | **15 个 SSE 分片逐片到达**（首两片间隔 0.487s）+ `[DONE]` 收尾 |
+| 计量口径 | `usage_source=node`（节点实测 usage）/ `perf_source=node`（TTFT 来自节点自测） |
+| 真实 TTFT | `ttft_ms=231.44` 落库 |
+| 真实 token | `prompt=9` / `completion=30` |
+| 三方分账（I6 守恒） | 节点 `0.0039000000` + 创作者 `0.0020081250` + 平台 `0.0122043750` **= 买家实付 `0.0181125000`** |
+| 可观测性（I9） | `dispatch_log` 落一行：`selected_node_id=p4_rehearse_node` / `outcome=ok` |
+| **演练结论** | **35/35 通过**（A 探针 5 + B 上架 3 + C 流式 5 + D 落库分账 15 + E 清理基线 7） |
+
+### E.3 全量回归矩阵（阶段一~六核心）
+
+| 套件 | 结果 |
+|---|---|
+| `apipaw-cloud/test_phase5_p0 / p1 / p2 / p3`（沙箱） | 25/25 · 32/32 · 34/34 · 45/45 |
+| `apipaw-cloud/test_phase5_p4`（沙箱） | 全绿 |
+| `apipaw-cloud/test_phase5_multinode_stress.py`（多节点压测） | **51/51**（零 `database is locked` / 零 `SHADOW-MISMATCH`） |
+| `apipaw-cloud/test_phase6_p0 / p1 / p1_stream / p2 / p3`（沙箱） | 52/52 · 20/20 · 16/16 · 90/90 · 81/81 |
+| `apipaw-cloud/test_dispatch_protocol_v2.py`（v2 盲派协议） | **19/19** |
+| `apipaw-cloud/test_phase6_p1_stream.py` 真实流式时序断言 | **16/16**（首尾分片间隔 0.18s ≫ 0.15s 阈值） |
+| **生产线上冒烟** `smoke_p6_p0/p1/p2/p3_prod.py` | **33/33 · 20/20 · 33/33 · 81/81**（每次跑完基线分毫不差） |
+| **生产线上冒烟** `smoke_p5_p0~p4_prod.py` | **两种契约下全绿**（详见 E.6）：生产默认（免计费）10/10 · 19/19 · 30/30 · 34/34；旧计费契约开关下 9/9 · 55/55 · 37/37 · 35/35 |
+| **双账本对账** `audit_report.py` | **总判定 OK**：`NET=BAL=1016.037562` · `FROZEN=0` · 破坏守恒行数 0 · 孤儿行 0 |
+| Agent CI（GitHub Actions，run `43666948583`） | **4/4 job 全绿**（`build-test full/minimal` + `matrix-python 3.10/3.12`） |
+
+### E.4 最终开关态与基线
+
+```
+# /etc/systemd/system/apipaw-cloud.service.d/p6-p4.conf
+Environment=APIPAW_DISPATCH_ENABLED=1     # 真实派单常态化（节点一上线就自动接管）
+Environment=APIPAW_REAL_STREAM=0          # 真流式留灰：待有常态节点时再单独开
+```
+
+- 稳态由 `python3 p4_dispatch_ctl.py gray` 维护；开真流式：
+  `python3 p4_dispatch_ctl.py enable --real-stream --min-nodes 1`；一键回退：
+  `python3 p4_dispatch_ctl.py rollback`。
+- 生产基线（跑前跑后逐项一致）：`users=2 api_keys=3 usage_logs=27 balance_ledger=40
+  daily_spend=6 revenue_ledger=0 models=5 dispatch_log=0`，**`NET == BAL == 1016.037562`**，
+  `integrity_check=ok`，`FROZEN=0`。
+- 演练节点（`node_registry` / `node_credentials` / `nodes_history` / `node_reliability`）
+  与全部资金流水**已物理清零**，线上 `online_nodes=0`。
+
+### E.5 本轮新踩的坑（阶段六 P4）
+
+1. 🔴 **真流式路径里 `await` 一次 DB 写 ⇒ "真流式"退化成"假流式"**：
+   `dispatch_log` 写入（`BEGIN IMMEDIATE` 撞锁等 `busy_timeout`）把事件循环卡住，
+   期间陆续到达的分片被攒成一批吐出 ⇒ 首尾分片间隔从 0.24s 塌成 0.13s，
+   沙箱断言 `test_phase6_p1_stream` 的 S1 直接挂。
+   ⇒ 修复：真流式分支一律 **fire-and-forget**（`_schedule_dispatch_decision` /
+   `_schedule_reliability_adjust`）——**可观测性绝不允许拖慢或改变数据面的吐字节奏**。
+2. **"改价会被自助覆盖"的旧断言**：阶段六 P3 已封死创作者自助改价（改价须 OWNER 审批），
+   `test_db_compat.py` 里"重复上架后价格更新 = 0.9"是 **P3 之前的旧契约** ⇒ 断言按新红线重写。
+3. **固定名沙箱目录会自我污染**：`test_batch2_sandbox.py` 用固定目录 `/tmp/b2sandbox`，
+   历史运行留下的 `nodes_history` 行让"产出统计保持为 0"假失败 ⇒ 沙箱启动即清空。
+4. **平台计量口径词汇是 `node` 不是 `real`**：`usage_source ∈ {estimate, node}`，
+   `perf_source ∈ {estimate, node}` —— 演练断言最初按 `real` 写，全部假失败。
+5. **`/tmp` sticky 位 + root 拥有的旧文件** ⇒ 普通用户既不能覆盖也不能改名删除
+   （`PermissionError`）⇒ 切换工具的暂存文件改为 **PID 私有名**。
+6. **演练断言要按 `request_id` 圈账本**：用 `api_key` 全量求和会把本次演练的 $5 充值
+   一并算进"净支出" ⇒ 断言必假失败。
+7. 🔴 **阶段五计费冒烟在阶段六生产默认态下"必假失败"**：阶段六 D5 定了
+   `APIPAW_SIMULATED_FREE=1`（模拟回答 **$0**、**不落 `usage_logs`**），
+   而阶段五 P0/P1/P2/P4 的冒烟断言写的是**计费契约**（"结算已落 usage_logs"、
+   "买家实付 = 基价 × 1.15"）⇒ 线上没有真实节点时全灭。
+   ⇒ 这**不是阶段六回归**，是契约演进 ⇒ 处置见 E.6。
+8. **阶段五旧列断言在 P2 切正后过期**：`creator_royalty_usd` 旧列在
+   `BILLING_SPLIT_CUTOVER=1` 之后**新行也落 v2 数字**（创作者拿版税池的 85%、
+   平台拿版税池的 15%）⇒ "旧列 = v1 全额版税"的断言必须改成
+   **"旧列 == v2 明细对应块"**（与能力等级定价解耦，不会随单价档位漂移）。
+9. **`sudo -S` 的 stdin 是给 sudo 的，不是给命令的**：
+   `printf ... | echo pwd | sudo -S tee file` 会把管道内容喂给 sudo 读密码，
+   `tee` 拿到 EOF ⇒ **静默写出 0 字节文件**（而 `systemctl show` 仍显示旧值，
+   极具迷惑性）⇒ 写 root 文件一律用 `sudo -S bash -c 'echo <base64> | base64 -d > file'`。
+10. **冒烟残留会污染后续套件的基线断言**：`smoke_p5_p0` 漏清 `revenue_ledger`
+    ⇒ 留下一条**孤儿分账行** ⇒ `audit_report.py` 判"分账流水找不到对应用量行"；
+    `smoke_p5_p0/p1` 漏清 `dispatch_log` ⇒ `smoke_p6_p2` 的"既有 dispatch_log 行未被回填"
+    断言把**本次新写入的真实决策数据**误判成"回填"⇒ 全套冒烟都必须**清干净自己的痕迹**。
+
+### E.6 阶段五计费冒烟的契约裁决（2026-11-15 收官）
+
+阶段六 D5 之后，线上同时存在**两种都合法**的计费契约：
+
+| 契约 | 开关 | 模拟回答 | 结算行 | 适用场景 |
+|---|---|---|---|---|
+| **免计费（生产默认）** | `APIPAW_SIMULATED_FREE=1` | **$0** | **不落 `usage_logs`** | 平台没提供真实服务 ⇒ 不收钱（D5 红线） |
+| 旧计费契约 | `APIPAW_SIMULATED_FREE=0` | 按 v1/v2 口径计费 | 落 `usage_logs` + 分账流水 | 回归阶段五计费数学本身 |
+
+**处置（不是"改断言凑绿"，而是"让冒烟认得两种契约"）**：
+
+1. 四个阶段五生产冒烟改为**按实际契约分支断言** —— 判据是
+   **账本留 `WAIVED` 痕迹 且 `usage_logs` 无该账户行** ⇒ 免计费模式；
+   否则走原计费断言。
+2. 免计费模式下断言的是**阶段六 P0 的红线本身**（实付 $0、不落 `usage_logs`、
+   不落 `revenue_ledger`、账本留 `WAIVED` 痕迹），而不是"没有断言"。
+3. 计费模式的断言按 **P2 切正 + P3 能力等级** 之后的真实口径重写
+   （创作者 = 版税池 × 0.85；旧列 == v2 明细对应块）。
+4. 两个契约**都实跑、都全绿**：
+
+| 套件 | 生产默认（免计费） | 旧计费契约（临时开关） |
+|---|---|---|
+| `smoke_p5_p0_prod.py` | 10/10 | 9/9 |
+| `smoke_p5_p1_prod.py` | 19/19 | 55/55 |
+| `smoke_p5_p2_prod.py` | 30/30 | 37/37 |
+| `smoke_p5_p4_prod.py` | 34/34 | 35/35 |
+
+5. 复跑旧计费契约的**临时开关已删除**（`p6-p5legacy.conf`），生产最终开关态回到
+   `APIPAW_SIMULATED_FREE=1`（`p6-p0.conf`）。
+6. 阶段五的**完整计费数学**（v2 分账守恒 I6、双账本 I7、旧列回落、幂等重放）
+   由"旧计费契约"这一列背书，**不会因为生产默认态免计费而失去覆盖**。
+
+> 一句话：**红灯的原因是契约演进，不是回归**；处置方式是"承认两种契约并分别断言"，
+> 而不是把新契约的断言改回旧契约。

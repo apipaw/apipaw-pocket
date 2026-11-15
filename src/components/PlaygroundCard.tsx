@@ -134,11 +134,29 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
 
 const formatMs = (ms: number): string => (ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`);
 
-/** 阶段五 P2 · D8 · 回答来源徽标：让买家一眼看出这答案是真节点跑的还是平台模拟的。 */
-const SOURCE_META: Record<string, { label: string; color: string }> = {
-  node: { label: '真实节点', color: colors.accent },
-  simulated: { label: '模拟回答', color: colors.warn },
-  fallback: { label: '回退模拟', color: colors.warn },
+/**
+ * 阶段五 P2 · D8 · 回答来源徽标：让买家一眼看出这答案是真节点跑的还是平台模拟的。
+ *
+ * ⚠️ 阶段六 P4：**模拟回答模式降级为"演示开关"** —— 它不是故障、也不是"平台在骗人"，
+ *    而是一个**显式的灰度开关**（无真实节点在线时的兜底）。所以文案改成"演示模式"，
+ *    并明确告知"不产生算力费用"（对应后端 ``APIPAW_SIMULATED_FREE=1`` 的零计费语义）。
+ */
+const SOURCE_META: Record<string, { label: string; color: string; hint: string }> = {
+  node: {
+    label: '真实节点',
+    color: colors.accent,
+    hint: '由去中心化节点实际推理产生',
+  },
+  simulated: {
+    label: '演示模式',
+    color: colors.warn,
+    hint: '演示开关：当前没有可用算力节点，由平台生成演示回答，不产生算力费用',
+  },
+  fallback: {
+    label: '演示模式·回退',
+    color: colors.warn,
+    hint: '演示开关：真实节点本次未接住，回退为平台演示回答，不产生算力费用',
+  },
 };
 
 const sourceMetaOf = (mode?: string | null) => SOURCE_META[String(mode || '')] ?? null;
@@ -1185,9 +1203,7 @@ console.log(response.choices[0].message.content);`;
                       </Text>
                     </View>
                     <Text style={styles.answerSourceHint}>
-                      {sourceMeta.label === '真实节点'
-                        ? '由去中心化节点实际推理产生'
-                        : '由平台模拟生成，未经过真实节点'}
+                      {sourceMeta.hint}
                     </Text>
                   </View>
                 ) : null}
