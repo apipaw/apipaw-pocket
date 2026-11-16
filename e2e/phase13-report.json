@@ -1,0 +1,189 @@
+{
+  "results": [
+    {
+      "name": "① 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "② 签发新 Key ⇒ 拿到明文",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "②d 体验金领取成功",
+      "pass": true,
+      "detail": "✓ 已到账 $0.50"
+    },
+    {
+      "name": "②e 账户余额可用",
+      "pass": true,
+      "detail": "balance=$0.5"
+    },
+    {
+      "name": "①a 模型选择器已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "①b 模型下拉出现 `apipaw-moa` 协同元模型",
+      "pass": true,
+      "detail": "已出现"
+    },
+    {
+      "name": "①c 协同条目的显示名正确",
+      "pass": true,
+      "detail": "APIPaw MoA · 多节点协同深度思考 场景 A · 开源基础模型 · 多节点并发出草稿，主节点聚合精炼；只按最终聚合节点结算一次 协同"
+    },
+    {
+      "name": "①e 选择器显示协同路由",
+      "pass": true,
+      "detail": "APIPaw MoA · 多节点协同深度思考"
+    },
+    {
+      "name": "①f 模型说明体现「多节点协同 / 聚合」",
+      "pass": true,
+      "detail": "场景 A · 开源基础模型 · 多节点并发出草稿，主节点聚合精炼；只按最终聚合节点结算一次 ·多节点协同出草稿、主节点聚合；按最终聚合节点命中的模型计费"
+    },
+    {
+      "name": "①g `apipaw-moa` 发起对话成功返回回答",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "①h POST /v1/chat/completions（model=apipaw-moa）返回 200 + MoA 模式头",
+      "pass": true,
+      "detail": "HTTP 200 mode=simulated resolved=(演示模式)"
+    },
+    {
+      "name": "①i MoA 模式取值合法（multi_node / self_refine / simulated）",
+      "pass": true,
+      "detail": "simulated"
+    },
+    {
+      "name": "①j GET /v1/models 含 apipaw-moa（is_virtual=true）",
+      "pass": true,
+      "detail": "APIPaw MoA · 多节点协同深度思考"
+    },
+    {
+      "name": "①k GET /api/v1/network/recommended-models 返回完整推荐列表",
+      "pass": true,
+      "detail": "HTTP 200 count=6 missing=(无)"
+    },
+    {
+      "name": "④a 口令弹窗已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④ 管理口令解锁成功",
+      "pass": true,
+      "detail": "✓ 已解锁 OWNER 视角 · 账户 acct_230bad0cd00541e1"
+    },
+    {
+      "name": "④d 业主分段导航已出现",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "③a 黄金语料工坊卡片已渲染",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "③b 「一键生成 Ollama Modelfile」按钮已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "③c 「导出 LoRA 微调脚本」按钮已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "③d Modelfile 预览弹窗已打开",
+      "pass": true,
+      "detail": "已打开"
+    },
+    {
+      "name": "③e 预览里含 `FROM qwen2.5:0.5b`",
+      "pass": true,
+      "detail": "# APIPaw 进化版模型 · Modelfile（自动生成，勿手改 FROM 行以外的参数）"
+    },
+    {
+      "name": "③f 预览里含 PARAMETER / SYSTEM / MESSAGE",
+      "pass": true,
+      "detail": "# APIPaw 进化版模型 · Modelfile（自动生成，勿手改 FROM 行以外的参数） # 生成时间: 2026-11-16 21:32:59 # 基准模型: qwen2"
+    },
+    {
+      "name": "③g Modelfile 下载事件触发",
+      "pass": true,
+      "detail": "apipaw-custom-Modelfile"
+    },
+    {
+      "name": "③h 关闭预览",
+      "pass": true,
+      "detail": "已关闭"
+    },
+    {
+      "name": "③i LoRA 脚本预览弹窗已打开",
+      "pass": true,
+      "detail": "已打开"
+    },
+    {
+      "name": "③j LoRA 脚本里嵌入基准模型",
+      "pass": true,
+      "detail": "# -*- coding: utf-8 -*- \"\"\"APIPaw 单卡 LoRA 微调脚本（自动生成）。 本脚本由 APIPaw「黄金语料工坊」生成，配套数据是同一工坊导出的 `"
+    },
+    {
+      "name": "③k LoRA 脚本含训练器实现",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "②a 导出 modelfile 返回标准 Modelfile 文本",
+      "pass": true,
+      "detail": "HTTP 200 len=1019"
+    },
+    {
+      "name": "②b 导出 lora_script 返回单卡微调脚本",
+      "pass": true,
+      "detail": "HTTP 200 len=5153"
+    },
+    {
+      "name": "②c 导出 dpo 返回合法偏好对 JSONL",
+      "pass": true,
+      "detail": "HTTP 200 lines=0"
+    },
+    {
+      "name": "console 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-81e499f7afbf3bd445097c998185cf29.js → content-encoding=gzip content-length=433720"
+    },
+    {
+      "name": "console 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "423.6KB"
+    },
+    {
+      "name": "pocket 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-81e499f7afbf3bd445097c998185cf29.js → content-encoding=gzip content-length=433720"
+    },
+    {
+      "name": "pocket 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "423.6KB"
+    }
+  ],
+  "passed": 35,
+  "total": 35,
+  "soft": 0,
+  "issuedKeyMasked": "paw-sk-****",
+  "pageErrors": [
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 403 ()"
+  ]
+}

@@ -192,13 +192,15 @@ export interface ModelInfo {
   object?: string;
   display_name: string;
   description: string;
-  tier: 'BASE' | 'CREATOR' | 'AUTO';
+  tier: 'BASE' | 'CREATOR' | 'AUTO' | 'MOA';
   tier_label: string;
   context_window: number;
   reasoning: boolean;
   pricing: ModelPricing;
   /** 阶段十二 P3 · 虚拟元模型（``apipaw-auto``）标记 —— 计价按实际路由结果 */
   is_virtual?: boolean;
+  /** 阶段十三 P0 · 虚拟元模型（``apipaw-moa``）标记 —— 多节点协同深度思考 */
+  moa?: boolean;
   /**
    * 阶段五 P1 · 场景标识：
    * A = 开源基础模型（无版税，买家实付 = 算力基价）
@@ -1962,14 +1964,29 @@ export const fetchDatasetSummary = async (): Promise<DatasetSummary> => {
   return res.data;
 };
 
-/** 一键导出语料（OWNER）—— `format` 为 `sft` 或 `dpo`。
+/** 语料导出格式（阶段十二 P2 + 阶段十三 P1）。
+ *  - `sft` / `dpo`：JSONL 语料（LLaMA-Factory / Unsloth 直接吃）；
+ *  - `modelfile`：标准 Ollama Modelfile（`ollama create` 秒出进化版模型）；
+ *  - `lora_script`：开箱即用的单卡 LoRA 微调脚本（Unsloth / HF TRL 模板）。 */
+export type DatasetExportFormat = 'sft' | 'dpo' | 'modelfile' | 'lora_script';
+
+/** 一键导出语料 / 生成进化版模型物料（OWNER）。
  *
- * 后端返回 `application/x-ndjson`（每行一个 JSON）⇒ 这里拿到的是**文本**，
+ * 后端返回纯文本（JSONL 或 Modelfile / Python 脚本）⇒ 这里拿到的是**文本**，
  * 前端直接生成 Blob 触发浏览器下载。
+ *
+ * @param format 导出格式
+ * @param baseModel 基准模型（仅 `modelfile` / `lora_script` 用；如 `qwen2.5:0.5b`）
  */
-export const exportDataset = async (format: 'sft' | 'dpo'): Promise<string> => {
+export const exportDataset = async (
+  format: DatasetExportFormat,
+  baseModel?: string,
+): Promise<string> => {
   const res = await cloudApi.get('/api/v1/owner/datasets/export', {
-    params: { format },
+    params: {
+      format,
+      ...(baseModel ? { base_model: baseModel } : {}),
+    },
     responseType: 'text',
   });
   return typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '');

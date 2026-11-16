@@ -121,6 +121,12 @@ const royaltyRateOf = (model?: ModelInfo | null): number => {
   return 0.15;
 };
 
+/** 阶段十三 P0 · ``apipaw-moa`` 多节点协同深度思考元模型判定。
+ *  它是**虚拟条目**（不进 models 表），计费按最终聚合节点命中的模型。 */
+export const MOA_MODEL_ID = 'apipaw-moa';
+export const isMoaModel = (model?: ModelInfo | null): boolean =>
+  !!model && (model.id || '').toLowerCase() === MOA_MODEL_ID;
+
 const SCENARIO_LABEL: Record<'A' | 'B', string> = {
   A: '场景 A · 开源基础模型',
   B: '场景 B · 社区创作者模型',
@@ -1146,20 +1152,24 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
               <Text style={styles.scenarioBadgeText}>
                 {scenarioOf(activeModel) === 'B'
                   ? `场景B · 版税 ${(royaltyRateOf(activeModel) * 100).toFixed(0)}%`
-                  : activeModel.is_virtual
-                    ? '智能路由 · 自动优选'
-                    : '场景A · 开源基础'}
+                  : isMoaModel(activeModel)
+                    ? '协同路由 · 多节点深度思考'
+                    : activeModel.is_virtual
+                      ? '智能路由 · 自动优选'
+                      : '场景A · 开源基础'}
               </Text>
             </View>
           )}
           {activeModel && (
             <View style={[styles.tierBadge, activeModel.tier === 'CREATOR' ? styles.tierBadgeCreator : styles.tierBadgeBase]}>
               <Text style={styles.tierBadgeText}>
-                {activeModel.is_virtual
-                  ? '智能优选路由'
-                  : activeModel.tier === 'CREATOR'
-                    ? '社区创作者'
-                    : '开源基础'}
+                {isMoaModel(activeModel)
+                  ? '多节点协同'
+                  : activeModel.is_virtual
+                    ? '智能优选路由'
+                    : activeModel.tier === 'CREATOR'
+                      ? '社区创作者'
+                      : '开源基础'}
               </Text>
             </View>
           )}
@@ -1175,7 +1185,9 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
         <Text style={styles.modelMeta} id="apx-model-meta">
           {SCENARIO_LABEL[scenarioOf(activeModel)]} · {activeModel.description} ·
           {activeModel.is_virtual ? (
-            '按实际路由到的模型计费'
+            isMoaModel(activeModel)
+              ? '多节点协同出草稿、主节点聚合；按最终聚合节点命中的模型计费'
+              : '按实际路由到的模型计费'
           ) : (
             <>
               {' '}
@@ -1502,7 +1514,7 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
                     ]}
                   >
                     <Text style={styles.tierBadgeText}>
-                      {model.tier === 'CREATOR' ? '创作者' : '基础'}
+                      {isMoaModel(model) ? '协同' : model.tier === 'CREATOR' ? '创作者' : '基础'}
                     </Text>
                   </View>
                   {model.id === selectedModelId ? <Text style={styles.pickerCheck}>✓</Text> : null}
