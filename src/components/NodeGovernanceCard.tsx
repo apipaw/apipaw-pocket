@@ -8,13 +8,16 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import {
   describeCloudError,
   fetchOwnerNodeAppeals,
   fetchOwnerNodesGovernance,
   GovernanceNode,
+  IssuedNodeCredential,
   NodeAppeal,
   decideOwnerNodeAppeal,
+  issueNodeCredential,
   submitNodeAppeal,
   toggleNodePause,
 } from '../api/cloudClient';
@@ -50,6 +53,13 @@ const NodeGovernanceCard: React.FC = () => {
   const [appealDetail, setAppealDetail] = useState('');
   const [appealError, setAppealError] = useState<string | null>(null);
   const [appealSubmitting, setAppealSubmitting] = useState(false);
+
+  // 阶段七 P2：自助签发节点凭证（消灭 SSH 手工签发）
+  const [issueNodeId, setIssueNodeId] = useState('');
+  const [issuing, setIssuing] = useState(false);
+  const [issued, setIssued] = useState<IssuedNodeCredential | null>(null);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [copiedTag, setCopiedTag] = useState<string | null>(null);
 
   const isOwner = sessionRole === 'OWNER';
 
@@ -140,6 +150,31 @@ const NodeGovernanceCard: React.FC = () => {
     }
   };
 
+  // 阶段七 P2：自助签发节点凭证
+  const handleIssueCredential = async () => {
+    setIssuing(true);
+    setIssueError(null);
+    try {
+      const res = await issueNodeCredential(issueNodeId.trim(), '');
+      setIssued(res);
+      setIssueNodeId('');
+    } catch (e: unknown) {
+      setIssueError(describeCloudError(e, 'session'));
+    } finally {
+      setIssuing(false);
+    }
+  };
+
+  const copyToClipboard = async (text: string, tag: string) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      setCopiedTag(tag);
+      setTimeout(() => setCopiedTag(null), 2000);
+    } catch (e: unknown) {
+      setIssueError('复制失败，请手动选中复制');
+    }
+  };
+
   if (!sessionToken) {
     return (
       <View style={styles.card} testID="governance-card" id="apx-glass-governance">
@@ -168,6 +203,47 @@ const NodeGovernanceCard: React.FC = () => {
           <Text style={styles.refreshBtnText}>刷新</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ---------------- OWNER · 一键新增算力节点（阶段七 P2）---------------- */}
+      {/* ⚠️ 刻意放在「加载中 / 出错」分支**之外**：签发凭证与节点列表加载是
+          两件独立的事 —— 列表接口慢或报错时，业主仍然必须能自助签发，
+          否则「SSH 手工签发」这个痛点又回来了。 */}
+      {isOwner ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>新增算力节点</Text>
+          <Text style={styles.hint}>
+            一键签发节点凭证：填一个 Node ID（留空自动生成），点下面按钮即可拿到
+            <Text style={styles.hintStrong}> node_id + node_secret</Text>
+            ，直接粘进 Agent 面板（http://127.0.0.1:52415/ui）—— 不用再 SSH 上服务器敲命令。
+          </Text>
+          <View style={styles.issueRow}>
+            <TextInput
+              testID="issue-node-id-input"
+              style={[styles.input, styles.issueInput]}
+              value={issueNodeId}
+              onChangeText={setIssueNodeId}
+              placeholder="Node ID（可留空自动生成）"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity
+              testID="issue-node-credential-btn"
+              style={[styles.issueBtn, issuing && styles.btnDisabled]}
+              onPress={handleIssueCredential}
+              disabled={issuing}
+              activeOpacity={0.8}
+            >
+              {issuing ? (
+                <ActivityIndicator color="#04211A" size="small" />
+              ) : (
+                <Text style={styles.issueBtnText}>一键新增</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {issueError ? <Text style={styles.modalError}>⚠️ {issueError}</Text> : null}
+        </View>
+      ) : null}
 
       {loading ? (
         <View style={styles.loadingWrap}>
@@ -324,6 +400,74 @@ const NodeGovernanceCard: React.FC = () => {
           ) : null}
         </>
       )}
+
+      {/* ---------------- 凭证回显 Modal（一次性显示明文）---------------- */}
+      <Modal
+        visible={!!issued}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIssued(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>节点凭证已签发</Text>
+            <Text style={styles.modalSub}>
+              {issued?.message ?? ''}
+              {issued?.rotated ? '（旧密钥已失效）' : ''}
+            </Text>
+
+            <View style={styles.credRow}>
+              <Text style={styles.credLabel}>Node ID</Text>
+              <Text style={styles.credValue} testID="issued-node-id">
+                {issued?.node_id ?? ''}
+              </Text>
+              <TouchableOpacity
+                testID="copy-node-id"
+                style={styles.copyBtn}
+                onPress={() => copyToClipboard(issued?.node_id ?? '', 'id')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.copyBtnText}>
+                  {copiedTag === 'id' ? '已复制' : '复制'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.credRow}>
+              <Text style={styles.credLabel}>Node Secret（明文只显示这一次）</Text>
+              <Text style={[styles.credValue, styles.credSecret]} testID="issued-node-secret">
+                {issued?.node_secret ?? ''}
+              </Text>
+              <TouchableOpacity
+                testID="copy-node-secret"
+                style={styles.copyBtn}
+                onPress={() => copyToClipboard(issued?.node_secret ?? '', 'secret')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.copyBtnText}>
+                  {copiedTag === 'secret' ? '已复制' : '复制'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.hint}>
+              指纹 {issued?.secret_fingerprint ?? '-'} · 把它填进 Agent 面板即可连上云端。
+              密钥**不会**再次显示，丢了就重新签发（会轮换旧密钥）。
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                testID="issued-close"
+                style={styles.modalConfirmBtn}
+                onPress={() => setIssued(null)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalConfirmText}>我已保存</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* ---------------- 申诉 Modal ---------------- */}
       <Modal
@@ -509,6 +653,47 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.5 },
 
   noticeText: { color: colors.accent, fontSize: fontSize.xs, marginBottom: spacing.sm },
+
+  // 阶段七 P2：一键新增算力节点
+  issueRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
+  issueInput: { flex: 1, marginTop: spacing.sm },
+  issueBtn: {
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
+    minWidth: 92,
+    alignItems: 'center',
+  },
+  issueBtnText: { color: '#04211A', fontSize: fontSize.xs, fontWeight: '800' },
+  hintStrong: { color: colors.textBody, fontWeight: '800' },
+  credRow: {
+    marginTop: spacing.md,
+    backgroundColor: colors.cardAlt,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  credLabel: { color: colors.textMuted, fontSize: fontSize.xs },
+  credValue: {
+    color: colors.textPrimary,
+    fontSize: fontSize.sm,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  credSecret: { color: colors.accent },
+  copyBtn: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+  },
+  copyBtnText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '800' },
   hint: { color: colors.textMuted, fontSize: fontSize.xs, lineHeight: 17, marginTop: spacing.sm },
   emptyText: { color: colors.textMuted, fontSize: fontSize.xs },
 

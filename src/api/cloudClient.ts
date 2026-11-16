@@ -613,6 +613,40 @@ export const toggleNodeStatus = async (nodeId: string) => {
   return res.data;
 };
 
+// ----------------- 阶段七 P2 · 节点凭证自助签发 -----------------
+
+/**
+ * 自助签发节点凭证（**一次性**回显明文密钥）。
+ *
+ * 此前新增一台算力节点必须 SSH 上源站跑 `manage_node.py gen`，
+ * 明文密钥还要从终端里抠出来 —— 流程长、密钥容易进日志/工单。
+ * 这里一次点击拿到 node_id + 明文 node_secret，直接填进 Agent 面板。
+ *
+ * ⚠️ `node_secret` **只在这一份响应里出现**，刷新页面就没了 —— 这是设计：
+ * 密钥只回显一次，之后一律用指纹核对。
+ */
+export interface IssuedNodeCredential {
+  status: string;
+  node_id: string;
+  node_secret: string;
+  secret_fingerprint: string;
+  rotated: boolean;
+  note: string;
+  issued_at: number;
+  message: string;
+}
+
+export const issueNodeCredential = async (
+  nodeId: string = '',
+  note: string = '',
+): Promise<IssuedNodeCredential> => {
+  const res = await cloudApi.post('/api/v1/owner/nodes/issue-credential', {
+    node_id: nodeId,
+    note,
+  });
+  return res.data;
+};
+
 // ----------------- 阶段六 P2 · 网络健康 / 节点治理 / 版税申请 -----------------
 
 /**
