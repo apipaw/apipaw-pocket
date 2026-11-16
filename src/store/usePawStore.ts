@@ -83,6 +83,16 @@ interface PawState {
   /** 是否已完成会话恢复（避免首屏闪「未登录」） */
   sessionReady: boolean;
 
+  /**
+   * 模型目录版本号（阶段九 P1）。
+   *
+   * 为什么需要它：Playground 的模型列表是**挂载时拉一次**的，
+   * 此前「上架新模型」必须刷新整页才看得见 —— 现在 OWNER 在网页上架后
+   * 调一次 ``bumpModelCatalog()``，Playground 立刻重新拉目录并把新模型选中。
+   * 用版本号而不是事件总线：跨组件的最小耦合，天然幂等。
+   */
+  modelCatalogVersion: number;
+
   setRoleMode: (mode: RoleMode) => void;
   setApiKey: (key: string) => void;
   setBalanceUsd: (balance: number) => void;
@@ -102,6 +112,8 @@ interface PawState {
   clearSession: () => void;
   /** 标记会话恢复完成 */
   markSessionReady: () => void;
+  /** 模型目录有变动 —— Playground 重新拉取模型列表（阶段九 P1） */
+  bumpModelCatalog: () => void;
 }
 
 export const usePawStore = create<PawState>((set) => ({
@@ -126,6 +138,8 @@ export const usePawStore = create<PawState>((set) => ({
   sessionStatus: '',
   sessionWallet: '',
   sessionReady: false,
+
+  modelCatalogVersion: 0,
 
   setRoleMode: (roleMode) => set({ roleMode }),
   setApiKey: (apiKey) => {
@@ -175,6 +189,9 @@ export const usePawStore = create<PawState>((set) => ({
   },
 
   markSessionReady: () => set({ sessionReady: true }),
+
+  bumpModelCatalog: () =>
+    set({ modelCatalogVersion: usePawStore.getState().modelCatalogVersion + 1 }),
 }));
 
 /**

@@ -1454,3 +1454,204 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
     },
   };
 };
+
+// ----------------- 阶段九 P0~P3 · 公示 / 上架 / 卡密 / 提现审批 -----------------
+
+/**
+ * 全网实时结算公示的一行（``GET /api/v1/network/recent-settlements``）。
+ *
+ * ⚠️ ``request_id`` 已由服务端脱敏（只回末段前 8 位）——
+ * 公开端点不能回吐可回溯到单次调用的原始请求标识。
+ */
+export interface RecentSettlement {
+  request_id: string;
+  model_id: string;
+  node_id: string;
+  model_tier: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  ttft_ms: number | null;
+  throughput_tps: number | null;
+  gross_usd: number;
+  node_share_usd: number;
+  creator_share_usd: number;
+  platform_fee_usd: number;
+  royalty_rate: number | null;
+  usage_source: string;
+  settled_at: number;
+}
+
+/** 拉取全网实时分账流水（**公开端点**，无需鉴权） */
+export const fetchRecentSettlements = async (
+  limit: number = 20,
+): Promise<{ status: string; count: number; limit: number; settlements: RecentSettlement[]; note: string }> => {
+  const res = await cloudApi.get('/api/v1/network/recent-settlements', {
+    params: { limit },
+  });
+  return res.data;
+};
+
+/** 阶段九 P1 · 网页自助上架/配置模型的表单载荷 */
+export interface OwnerModelUpsertPayload {
+  model_id: string;
+  display_name: string;
+  tier: 'BASE' | 'CREATOR';
+  prompt_price_per_1k: number;
+  completion_price_per_1k: number;
+  min_vram_gb: number;
+  royalty_rate: number;
+  royalty_mode: 'RATE' | 'NONE';
+  creator_id?: string;
+  creator_name?: string;
+  author_wallet?: string;
+  context_window?: number;
+  description?: string;
+}
+
+export interface OwnerModelUpsertResult {
+  created: boolean;
+  model_id: string;
+  display_name: string;
+  tier: string;
+  prompt_price_per_1k: number;
+  completion_price_per_1k: number;
+  min_vram_gb: number;
+  royalty_rate: number;
+  royalty_mode: string;
+}
+
+/** OWNER 在网页上一键上架/配置推理模型 */
+export const upsertOwnerModel = async (
+  payload: OwnerModelUpsertPayload,
+): Promise<{ status: string; model: OwnerModelUpsertResult }> => {
+  const res = await cloudApi.post('/api/v1/owner/models/upsert', payload);
+  return res.data;
+};
+
+/** 阶段九 P2 · 充值卡密（明文只在签发那一刻回吐一次） */
+export interface IssuedVoucher {
+  id: number;
+  code: string;
+  code_prefix: string;
+  amount_usd: number;
+  status: string;
+}
+
+/** OWNER 签发充值卡密 */
+export const issueVouchers = async (
+  amountUsd: number,
+  count: number = 1,
+): Promise<{
+  status: string;
+  amount_usd: number;
+  count: number;
+  vouchers: IssuedVoucher[];
+  note: string;
+}> => {
+  const res = await cloudApi.post('/api/v1/owner/vouchers/issue', {
+    amount_usd: amountUsd,
+    count,
+  });
+  return res.data;
+};
+
+/** OWNER 查看卡密台账（**只有前缀与状态，没有明文**） */
+export interface VoucherRow {
+  id: number;
+  code_prefix: string;
+  amount_usd: number;
+  status: string;
+  created_by: string;
+  redeemed_by: string;
+  redeemed_at: number;
+  created_at: number;
+}
+
+export const fetchOwnerVouchers = async (
+  status: string = '',
+  limit: number = 50,
+): Promise<{ status: string; vouchers: VoucherRow[]; count: number }> => {
+  const res = await cloudApi.get('/api/v1/owner/vouchers', { params: { status, limit } });
+  return res.data;
+};
+
+/**
+ * 买家核销充值卡密（**API Key 鉴权**）。
+ *
+ * 服务端语义：核销与入账在**同一事务**里，失败回 409 并带机器可读 ``code``。
+ */
+export const redeemVoucher = async (
+  code: string,
+): Promise<{ status: string; amount_usd: number; balance_usd: number; account_handle: string }> => {
+  const res = await cloudApi.post('/api/v1/user/redeem', { code });
+  return res.data;
+};
+
+/** 把核销失败（409）翻译成可读提示 */
+export const describeRedeemError = (e: unknown): string => {
+  const err = e as { response?: { status?: number; data?: { detail?: string; code?: string } } };
+  const status = err?.response?.status;
+  const code = err?.response?.data?.code;
+  const detail = err?.response?.data?.detail;
+  if (status === 409) {
+    if (code === 'already_redeemed') return '该充值码已被核销';
+    if (code === 'invalid_code') return '充值码无效';
+    if (code === 'code_required') return '请输入充值码';
+    return detail || '兑换失败';
+  }
+  if (status === 429) return '兑换过于频繁，请稍后再试';
+  if (status === 401) return '需要有效的 API Key 才能兑换';
+  return detail || '兑换失败，请重试';
+};
+
+/** 阶段九 P3 · 提现审批台的一行 */
+export interface WithdrawalRow {
+  id: number;
+  status: string;
+  amount_usd: number;
+  amount_paw: number;
+  created_at: number;
+  tx_hash?: string;
+  decided_by?: string;
+  decided_at?: number;
+  note?: string;
+  node_id?: string;
+  owner_wallet?: string;
+  creator_id?: string;
+  author_wallet?: string;
+}
+
+export const fetchOwnerNodeWithdrawals = async (
+  status: string = 'PENDING',
+  limit: number = 50,
+): Promise<{ status: string; withdrawals: WithdrawalRow[]; count: number }> => {
+  const res = await cloudApi.get('/api/v1/owner/node-withdrawals', {
+    params: { status, limit },
+  });
+  return res.data;
+};
+
+export const fetchOwnerCreatorWithdrawals = async (
+  status: string = 'PENDING',
+  limit: number = 50,
+): Promise<{ status: string; withdrawals: WithdrawalRow[]; count: number }> => {
+  const res = await cloudApi.get('/api/v1/owner/creator-withdrawals', {
+    params: { status, limit },
+  });
+  return res.data;
+};
+
+/** OWNER 审批提现（批准时可回填链上凭证 ``tx_hash``） */
+export const decideOwnerWithdrawal = async (
+  kind: 'node' | 'creator',
+  withdrawalId: number,
+  approve: boolean,
+  txHash: string = '',
+  note: string = '',
+): Promise<{ status: string; withdrawal: WithdrawalRow }> => {
+  const res = await cloudApi.post(
+    `/api/v1/owner/${kind}-withdrawals/${withdrawalId}/decide`,
+    { approve, tx_hash: txHash, note },
+  );
+  return res.data;
+};

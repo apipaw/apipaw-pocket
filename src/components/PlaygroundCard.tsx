@@ -411,6 +411,9 @@ const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
 
 const PlaygroundCard: React.FC = () => {
   const { apiKey, selectedModelId, setSelectedModelId } = usePawStore();
+  // 阶段九 P1：OWNER 在网页上架新模型后 bump 版本号 —— Playground 当场重拉目录，
+  // 不必刷新整页才能看到新模型。
+  const modelCatalogVersion = usePawStore((s) => s.modelCatalogVersion);
 
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -477,7 +480,7 @@ const PlaygroundCard: React.FC = () => {
     } | null,
   });
 
-  // 加载模型目录
+  // 加载模型目录（阶段九 P1：随 modelCatalogVersion 变化重拉 —— 上架即生效）
   useEffect(() => {
     let active = true;
     fetchModels()
@@ -501,7 +504,7 @@ const PlaygroundCard: React.FC = () => {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [modelCatalogVersion]);
 
   // 思考链计时刷新
   useEffect(() => {

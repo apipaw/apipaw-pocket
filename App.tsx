@@ -35,6 +35,11 @@ import NodeGovernanceCard from './src/components/NodeGovernanceCard';
 import NodePayoutCard from './src/components/NodePayoutCard';
 import PricingApprovalCard from './src/components/PricingApprovalCard';
 import PublicNodeCard from './src/components/PublicNodeCard';
+import LiveSettlementFeed from './src/components/LiveSettlementFeed';
+import ModelUpsertCard from './src/components/ModelUpsertCard';
+import VoucherRedeemCard from './src/components/VoucherRedeemCard';
+import VoucherIssueCard from './src/components/VoucherIssueCard';
+import WithdrawalApprovalCard from './src/components/WithdrawalApprovalCard';
 import KeyIssuePanel from './src/components/KeyIssuePanel';
 import WalletPanel from './src/components/WalletPanel';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
@@ -402,6 +407,9 @@ export default function App() {
                   </View>
                 ) : null}
 
+                {/* 阶段九 P2：兑换充值码（买家自助储值入口）*/}
+                <VoucherRedeemCard />
+
                 <View style={styles.balanceMeta}>
                   <View style={styles.balanceMetaCell}>
                     <Text style={styles.balanceMetaLabel}>当前密钥</Text>
@@ -449,6 +457,8 @@ export default function App() {
 
             <PlaygroundCard />
             <PublicNodeCard />
+            {/* 阶段九 P0：全网实时推理与三方分账公示（公开数据）*/}
+            <LiveSettlementFeed />
             <AnalyticsCard />
           </View>
         ) : (
@@ -607,6 +617,8 @@ export default function App() {
             {hostTab === 'STUDIO' && (
               <View style={styles.column}>
                 <ModelStudioCard />
+                {/* 阶段九 P1：网页自助上架/配置推理模型（OWNER）*/}
+                <ModelUpsertCard />
                 <PipelineMeshCard />
               </View>
             )}
@@ -621,6 +633,11 @@ export default function App() {
               <View style={styles.column}>
                 <NodeGovernanceCard />
                 <PricingApprovalCard />
+                {/* 阶段九 P2/P3：充值卡密签发 + 提现审批台（OWNER）*/}
+                <VoucherIssueCard />
+                <WithdrawalApprovalCard />
+                {/* 阶段九 P0：业主视角同样看得见全网分账公示 */}
+                <LiveSettlementFeed />
               </View>
             )}
           </View>
