@@ -37,6 +37,13 @@ const WithdrawalApprovalCard: React.FC<{
 }> = ({ onDecided }) => {
   const sessionRole = usePawStore((s) => s.sessionRole);
   const sessionToken = usePawStore((s) => s.sessionToken);
+  /**
+   * 阶段十二 P0 · 零刷新双向联动：
+   * 订阅全局「提现台版本号」—— 提现申请一经提交（`EarningsWithdrawCard` 自增），
+   * 本审批台**立即**重拉待审列表，不再需要人工点「刷新」。
+   */
+  const withdrawalsVersion = usePawStore((s) => s.withdrawalsVersion);
+  const bumpWithdrawalsVersion = usePawStore((s) => s.bumpWithdrawalsVersion);
 
   const [nodeRows, setNodeRows] = useState<WithdrawalRow[]>([]);
   const [creatorRows, setCreatorRows] = useState<WithdrawalRow[]>([]);
@@ -72,6 +79,15 @@ const WithdrawalApprovalCard: React.FC<{
     void load();
   }, [sessionToken, isOwner, load]);
 
+  // 阶段十二 P0：提现台版本号变化 ⇒ 立即重拉待审列表（首帧不重复拉）
+  const lastVersionRef = React.useRef(withdrawalsVersion);
+  useEffect(() => {
+    if (lastVersionRef.current === withdrawalsVersion) return;
+    lastVersionRef.current = withdrawalsVersion;
+    if (!sessionToken || !isOwner) return;
+    void load();
+  }, [withdrawalsVersion, sessionToken, isOwner, load]);
+
   const decide = useCallback(
     async (kind: 'node' | 'creator', row: WithdrawalRow, approve: boolean) => {
       const key = `${kind}-${row.id}`;
@@ -83,6 +99,8 @@ const WithdrawalApprovalCard: React.FC<{
         await decideOwnerWithdrawal(kind, row.id, approve, txHash, 'OWNER 审批');
         setNotice(`#${row.id} 已${approve ? '批准' : '驳回'}`);
         await load();
+        // 阶段十二 P0：自增全局提现台版本号 ⇒ 收益卡片立即重拉（零刷新）
+        bumpWithdrawalsVersion();
         onDecided?.();
       } catch (e: unknown) {
         setError(describeCloudError(e, 'session'));
@@ -90,7 +108,7 @@ const WithdrawalApprovalCard: React.FC<{
         setBusyKey(null);
       }
     },
-    [txInputs, load, onDecided],
+    [txInputs, load, onDecided, bumpWithdrawalsVersion],
   );
 
   if (!sessionToken) {

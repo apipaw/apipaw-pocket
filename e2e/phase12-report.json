@@ -1,0 +1,166 @@
+{
+  "results": [
+    {
+      "name": "① 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "② 签发新 Key ⇒ 拿到明文",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "②d 体验金领取成功",
+      "pass": true,
+      "detail": "✓ 已到账 $0.50"
+    },
+    {
+      "name": "④a 模型选择器已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④a 模型下拉出现 `apipaw-auto` 智能路由元模型",
+      "pass": true,
+      "detail": "已出现"
+    },
+    {
+      "name": "④b 智能路由条目的显示名正确",
+      "pass": true,
+      "detail": "APIPaw Smart Router · 智能优选路由 场景 A · 开源基础模型 · 自动在在线节点的可服务模型中，按信用分 + 买家好评率 + 吞吐综合择"
+    },
+    {
+      "name": "④d Playground 收到回答（打分区已出现）",
+      "pass": true,
+      "detail": "已渲染 👍/👎/复制"
+    },
+    {
+      "name": "②e 👍 打分已记录（前端回执）",
+      "pass": true,
+      "detail": "✓ 已记录 · 进入黄金语料池"
+    },
+    {
+      "name": "②e POST /api/v1/user/feedback 返回 200",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "②f 改判 👎 同样 200（幂等更新）",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "④f 选择器显示智能路由",
+      "pass": true,
+      "detail": "APIPaw Smart Router · 智能优选路由"
+    },
+    {
+      "name": "④g `apipaw-auto` 发起对话成功返回回答",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "④h POST /v1/chat/completions（model=apipaw-auto）返回 200 + requested_model",
+      "pass": true,
+      "detail": "HTTP 200 requested=apipaw-auto resolved=(演示模式)"
+    },
+    {
+      "name": "④i GET /v1/models 含 apipaw-auto（is_virtual=true）",
+      "pass": true,
+      "detail": "APIPaw Smart Router · 智能优选路由"
+    },
+    {
+      "name": "⑥a 口令弹窗已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑥ 管理口令解锁成功",
+      "pass": true,
+      "detail": "✓ 已解锁 OWNER 视角 · 账户 acct_230bad0cd00541e1"
+    },
+    {
+      "name": "⑥d 业主分段导航已出现",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "③a 黄金语料工坊卡片已渲染",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "③b 语料池总数已出数",
+      "pass": true,
+      "detail": "3（黄金 2）"
+    },
+    {
+      "name": "③c 黄金样本数已出数（含 win_node_01 回填基线）",
+      "pass": true,
+      "detail": "2"
+    },
+    {
+      "name": "③d 最近样本预览已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "③e SFT 导出触发浏览器下载",
+      "pass": true,
+      "detail": "apipaw-golden-sft.jsonl"
+    },
+    {
+      "name": "③f DPO 导出触发浏览器下载",
+      "pass": true,
+      "detail": "apipaw-preference-dpo.jsonl"
+    },
+    {
+      "name": "①a 提现审批台已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "①a 收益面板与审批台同页",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "①b 提现申请已登记（回执含单号）",
+      "pass": true,
+      "detail": "#10"
+    },
+    {
+      "name": "①c 审批台**免刷新**自动出现新申请（提交⇄审批零刷新联动）",
+      "pass": true,
+      "detail": "#10 已出现"
+    },
+    {
+      "name": "①d 驳回成功（额度退回）",
+      "pass": true,
+      "detail": "✓ #10 已驳回"
+    },
+    {
+      "name": "③g GET /api/v1/owner/datasets/export?format=sft 返回合法 JSONL",
+      "pass": true,
+      "detail": "HTTP 200 lines=2"
+    },
+    {
+      "name": "③g GET /api/v1/owner/datasets/export?format=dpo 返回合法 JSONL",
+      "pass": true,
+      "detail": "HTTP 200 lines=0"
+    },
+    {
+      "name": "③h GET /api/v1/owner/datasets/summary 返回统计",
+      "pass": true,
+      "detail": "HTTP 200 total=3 golden=2 negative=1"
+    }
+  ],
+  "passed": 31,
+  "total": 31,
+  "soft": 0,
+  "issuedKeyMasked": "paw-sk-****",
+  "withdrawalIds": [
+    10
+  ]
+}

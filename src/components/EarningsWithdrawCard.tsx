@@ -80,6 +80,13 @@ const EarningsWithdrawCard: React.FC<{
   refreshKey = 0,
 }) => {
   const { sessionToken, sessionWallet } = usePawStore();
+  /**
+   * 阶段十二 P0 · 零刷新双向联动：
+   * 提现台版本号 —— 提交方自增，审批台订阅后立即重拉待审列表；
+   * 审批方自增，本卡片立即重拉收益与历史。
+   */
+  const withdrawalsVersion = usePawStore((s) => s.withdrawalsVersion);
+  const bumpWithdrawalsVersion = usePawStore((s) => s.bumpWithdrawalsVersion);
 
   const [summary, setSummary] = useState<EarningsSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,9 +117,15 @@ const EarningsWithdrawCard: React.FC<{
   }, [load]);
 
   // 外部审批信号 ⇒ 立即重拉（OWNER 批准/驳回后同页看到最新额度与状态）
+  // 阶段十二 P0：外部信号与全局提现台版本号合并为一个"刷新票据"，
+  // 同一次操作只触发一次重拉（两个来源同拍自增 ⇒ 票据只变一次）。
+  const refreshTicket = refreshKey + withdrawalsVersion;
+  const lastTicketRef = React.useRef(refreshTicket);
   useEffect(() => {
-    if (refreshKey > 0) void load();
-  }, [refreshKey, load]);
+    if (lastTicketRef.current === refreshTicket) return;
+    lastTicketRef.current = refreshTicket;
+    void load();
+  }, [refreshTicket, load]);
 
   // 会话建立后自动把收款钱包预填成绑定钱包（服务端只认它）
   useEffect(() => {
@@ -160,13 +173,24 @@ const EarningsWithdrawCard: React.FC<{
       }
       setAmount('');
       await load();
+      // 阶段十二 P0：自增全局提现台版本号 ⇒ 审批台**立即**重拉（零刷新）
+      bumpWithdrawalsVersion();
       onSubmitted?.();
     } catch (e: unknown) {
       setFormError(describeCloudError(e, 'session'));
     } finally {
       setBusy(false);
     }
-  }, [amount, channel, nodeId, payoutWallet, sessionToken, load, onSubmitted]);
+  }, [
+    amount,
+    channel,
+    nodeId,
+    payoutWallet,
+    sessionToken,
+    load,
+    onSubmitted,
+    bumpWithdrawalsVersion,
+  ]);
 
   const statRow = (
     label: string,

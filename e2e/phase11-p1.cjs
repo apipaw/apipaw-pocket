@@ -20,6 +20,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const { maskKey, redactDeep } = require('./redact.cjs');
 
 const BASE_URL = process.argv[2] || 'https://console.apipaw.com';
 const CLOUD_URL = process.env.APIPAW_CLOUD_URL || 'https://cloud.apipaw.com';
@@ -590,12 +591,12 @@ async function submitWithdrawal(page) {
     REPORT,
     JSON.stringify(
       {
-        results,
+        results: redactDeep(results),
         passed,
         total: results.length,
         soft,
         // ⚠️ 报告里**不落明文 Key**（明文只回显到 stdout，交给运维当场清理）
-        issuedKeyMasked: issuedKey ? issuedKey.slice(0, 12) + '…' : '',
+        issuedKeyMasked: maskKey(issuedKey),
         withdrawalIds,
       },
       null,

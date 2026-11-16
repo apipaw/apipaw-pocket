@@ -22,6 +22,7 @@ import {
   describeCloudError,
   fetchModels,
   streamChat,
+  submitFeedback,
 } from '../api/cloudClient';
 import { colors, fontSize, radius, spacing } from '../theme';
 import { StatTile } from './ui';
@@ -79,6 +80,16 @@ export interface ChatMessageItem {
   answerSource?: string;
   /** 阶段六 P1 · 严格模式容量错误（503 no_capacity / 504 dispatch_timeout） */
   capacityError?: CapacityError;
+  /** 阶段十二 P1 · 本次推理的 request_id（评价采集的幂等键） */
+  requestId?: string;
+  /** 阶段十二 P1 · 本次提问内容（随评价一起上报，作为语料的 prompt） */
+  promptText?: string;
+  /** 阶段十二 P1 · 已提交的评价：1=👍 / -1=👎 / 0=已采纳 */
+  feedbackRating?: number;
+  /** 阶段十二 P1 · 反馈回执提示 */
+  feedbackNotice?: string;
+  /** 阶段十二 P1 · 是否是「apipaw-auto」路由出来的回答 */
+  autoRouted?: boolean;
 }
 
 type ExporterTab = 'curl' | 'python' | 'javascript' | 'client';
@@ -541,6 +552,9 @@ const PlaygroundCard: React.FC = () => {
   const costPreview = useMemo(() => {
     const model = activeModel;
     if (!model) return null;
+    // 阶段十二 P3：``apipaw-auto`` 是虚拟元模型，计价取决于**路由出来的真实模型**，
+    // 前端给不出准确预估 ⇒ 不显示（显示 $0.00 会被误读成"免费"）。
+    if (model.is_virtual) return null;
     const sys = systemPrompt.trim();
     const billingText = sys ? `${sys}\n${input}` : input;
     // 空输入时按一个占位词估算，避免显示 $0.00 造成"免费"的错觉
@@ -841,7 +855,7 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
     setMessages((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, role: 'user', content: text },
-      { id: botId, role: 'assistant', content: '', reasoning: '' },
+      { id: botId, role: 'assistant', content: '', reasoning: '', promptText: text },
     ]);
     setInput('');
     setStreaming(true);
@@ -872,7 +886,16 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
           run.usage = res.usage;
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === botId ? { ...m, content: res.content, reasoning: res.reasoning } : m,
+              m.id === botId
+                ? {
+                    ...m,
+                    content: res.content,
+                    reasoning: res.reasoning,
+                    // 阶段十二 P1/P3：request_id（评价幂等键）+ 路由解析结果
+                    requestId: res.requestId || m.requestId,
+                    autoRouted: !!res.resolvedModelId,
+                  }
+                : m,
             ),
           );
           finalizeRun(botId);
@@ -908,6 +931,12 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
       onDispatch: (mode) => {
         setMessages((prev) =>
           prev.map((m) => (m.id === botId ? { ...m, answerSource: mode } : m)),
+        );
+      },
+      // 阶段十二 P1：request_id 到达即记录（评价采集的幂等键）
+      onRequestId: (requestId) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === botId ? { ...m, requestId } : m)),
         );
       },
       onReasoning: (delta) => {
@@ -959,6 +988,70 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
     streamRef.current = null;
     setStreaming(false);
   };
+
+  // ----------------- 阶段十二 P1 · 回答质量打分（RLHF 语料采集） -----------------
+  //
+  // 三个动作：
+  //   👍 有用    ⇒ rating=1，服务端自动把这条标成黄金样本（is_golden=1）
+  //   👎 需改进  ⇒ rating=-1，进负向池（可与同 prompt 的 👍 配成 DPO 偏好对）
+  //   复制回答   ⇒ rating=0 且 copied=1（"仅采纳"，不计好评也不算差评）
+  // 服务端按 request_id **幂等**：同一条回答改主意 = 更新同一条记录，不新增。
+  const submitMessageFeedback = useCallback(
+    async (message: ChatMessageItem, rating: number, copied: number) => {
+      if (!message.content.trim()) return;
+      try {
+        const res = await submitFeedback({
+          rating,
+          request_id: message.requestId || '',
+          prompt_text: message.promptText || '',
+          completion_text: message.content,
+          model_id: selectedModelId,
+          copied,
+          ttft_ms: message.stats?.ttftMs ?? 0,
+          throughput_tps: message.stats?.tokensPerSec ?? 0,
+        });
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id
+              ? {
+                  ...m,
+                  feedbackRating: res.rating,
+                  feedbackNotice: res.is_golden
+                    ? '✓ 已记录 · 进入黄金语料池'
+                    : '✓ 已记录你的评价',
+                }
+              : m,
+          ),
+        );
+      } catch (e: unknown) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id
+              ? { ...m, feedbackNotice: `⚠️ ${describeCloudError(e)}` }
+              : m,
+          ),
+        );
+      }
+    },
+    [selectedModelId],
+  );
+
+  const handleCopyAnswer = useCallback(
+    async (message: ChatMessageItem) => {
+      const ok = await copyToClipboard(message.content);
+      if (!ok) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id ? { ...m, feedbackNotice: '⚠️ 复制失败' } : m,
+          ),
+        );
+        return;
+      }
+      // 复制 = 采纳（copied=1），但**不算好评** —— 采纳与好评是两件事
+      await submitMessageFeedback(message, 0, 1);
+    },
+    [submitMessageFeedback],
+  );
 
   const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
 
@@ -1053,14 +1146,20 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
               <Text style={styles.scenarioBadgeText}>
                 {scenarioOf(activeModel) === 'B'
                   ? `场景B · 版税 ${(royaltyRateOf(activeModel) * 100).toFixed(0)}%`
-                  : '场景A · 开源基础'}
+                  : activeModel.is_virtual
+                    ? '智能路由 · 自动优选'
+                    : '场景A · 开源基础'}
               </Text>
             </View>
           )}
           {activeModel && (
             <View style={[styles.tierBadge, activeModel.tier === 'CREATOR' ? styles.tierBadgeCreator : styles.tierBadgeBase]}>
               <Text style={styles.tierBadgeText}>
-                {activeModel.tier === 'CREATOR' ? '社区创作者' : '开源基础'}
+                {activeModel.is_virtual
+                  ? '智能优选路由'
+                  : activeModel.tier === 'CREATOR'
+                    ? '社区创作者'
+                    : '开源基础'}
               </Text>
             </View>
           )}
@@ -1075,8 +1174,16 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
       {activeModel && (
         <Text style={styles.modelMeta} id="apx-model-meta">
           {SCENARIO_LABEL[scenarioOf(activeModel)]} · {activeModel.description} ·
-          输入 ${activeModel.pricing.prompt_per_1k_usd}/1K ·
-          输出 ${activeModel.pricing.completion_per_1k_usd}/1K · 上下文 {activeModel.context_window}
+          {activeModel.is_virtual ? (
+            '按实际路由到的模型计费'
+          ) : (
+            <>
+              {' '}
+              输入 ${activeModel.pricing.prompt_per_1k_usd}/1K ·
+              输出 ${activeModel.pricing.completion_per_1k_usd}/1K · 上下文{' '}
+              {activeModel.context_window}
+            </>
+          )}
         </Text>
       )}
 
@@ -1280,6 +1387,47 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
                 ) : null}
 
                 {message.stats ? <StatsBar stats={message.stats} /> : null}
+
+                {/* 阶段十二 P1 · 回答质量打分（👍 / 👎 / 复制） */}
+                {message.content && !isLive ? (
+                  <View style={styles.feedbackRow} testID="playground-feedback-row">
+                    <TouchableOpacity
+                      style={[
+                        styles.feedbackBtn,
+                        message.feedbackRating === 1 && styles.feedbackBtnUp,
+                      ]}
+                      onPress={() => void submitMessageFeedback(message, 1, 0)}
+                      activeOpacity={0.75}
+                      testID="playground-feedback-up"
+                    >
+                      <Text style={styles.feedbackBtnText}>👍 有用</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.feedbackBtn,
+                        message.feedbackRating === -1 && styles.feedbackBtnDown,
+                      ]}
+                      onPress={() => void submitMessageFeedback(message, -1, 0)}
+                      activeOpacity={0.75}
+                      testID="playground-feedback-down"
+                    >
+                      <Text style={styles.feedbackBtnText}>👎 需改进</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.feedbackBtn}
+                      onPress={() => void handleCopyAnswer(message)}
+                      activeOpacity={0.75}
+                      testID="playground-feedback-copy"
+                    >
+                      <Text style={styles.feedbackBtnText}>复制回答</Text>
+                    </TouchableOpacity>
+                    {message.feedbackNotice ? (
+                      <Text style={styles.feedbackNotice} testID="playground-feedback-notice">
+                        {message.feedbackNotice}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             );
           })}
@@ -1675,11 +1823,35 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xs,
   },
   statRow: { flexDirection: 'row', alignItems: 'center' },
-  statItem: { flex: 1, alignItems: 'center' },
-  statDivider: { width: 1, height: 26, backgroundColor: colors.divider },
+  statItem: { flex: 1, alignItems: 'center' },  statDivider: { width: 1, height: 26, backgroundColor: colors.divider },
   statLabel: { color: colors.textSecondary, fontSize: fontSize.xs, marginBottom: 3 },
   statValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
   statValueAccent: { color: colors.accent },
+
+  // 阶段十二 P1 · 回答质量打分按钮行
+  feedbackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  feedbackBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.cardAlt,
+  },
+  feedbackBtnUp: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  feedbackBtnDown: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
+  feedbackBtnText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '700' },
+  feedbackNotice: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    marginLeft: spacing.xs,
+  },
 
   // 阶段五 P2 · D9：TTFT / 吐字速度 / 总 token 三块 StatTile
   statTilesRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },

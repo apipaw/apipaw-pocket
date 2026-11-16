@@ -21,6 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const { maskKey, redactDeep } = require('./redact.cjs');
 
 const BASE_URL = process.argv[2] || 'https://console.apipaw.com';
 const CLOUD_URL = process.env.APIPAW_CLOUD_URL || 'https://cloud.apipaw.com';
@@ -391,7 +392,18 @@ async function mount(page) {
   console.log(`===== 阶段十 P0~P3 线上验收：${passed}/${results.length} 通过 =====`);
   fs.writeFileSync(
     REPORT,
-    JSON.stringify({ results, passed, total: results.length, issuedKey, voucherCode }, null, 2),
+    // ⚠️ 报告里**不落明文 Key**（明文只回显到 stdout）
+    JSON.stringify(
+      {
+        results: redactDeep(results),
+        passed,
+        total: results.length,
+        issuedKeyMasked: maskKey(issuedKey),
+        voucherCode,
+      },
+      null,
+      2
+    ),
   );
   process.exit(passed === results.length ? 0 : 1);
 })();

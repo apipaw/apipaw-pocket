@@ -29,6 +29,7 @@ import {
 import PlaygroundCard from './src/components/PlaygroundCard';
 import AnalyticsCard from './src/components/AnalyticsCard';
 import ModelStudioCard from './src/components/ModelStudioCard';
+import GoldenDatasetCard from './src/components/GoldenDatasetCard';
 import PipelineMeshCard from './src/components/PipelineMeshCard';
 import RoyaltyCard from './src/components/RoyaltyCard';
 import NodeGovernanceCard from './src/components/NodeGovernanceCard';
@@ -654,6 +655,8 @@ export default function App() {
                 {/* 阶段九 P1：网页自助上架/配置推理模型（OWNER）*/}
                 <ModelUpsertCard />
                 <PipelineMeshCard />
+                {/* 阶段十二 P2：黄金 SFT/DPO 微调语料工坊（OWNER）*/}
+                <GoldenDatasetCard />
               </View>
             )}
 

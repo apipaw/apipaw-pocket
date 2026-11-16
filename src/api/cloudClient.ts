@@ -192,11 +192,13 @@ export interface ModelInfo {
   object?: string;
   display_name: string;
   description: string;
-  tier: 'BASE' | 'CREATOR';
+  tier: 'BASE' | 'CREATOR' | 'AUTO';
   tier_label: string;
   context_window: number;
   reasoning: boolean;
   pricing: ModelPricing;
+  /** 阶段十二 P3 · 虚拟元模型（``apipaw-auto``）标记 —— 计价按实际路由结果 */
+  is_virtual?: boolean;
   /**
    * 阶段五 P1 · 场景标识：
    * A = 开源基础模型（无版税，买家实付 = 算力基价）
@@ -1216,6 +1218,10 @@ export interface ChatOnceResult {
   content: string;
   reasoning: string;
   usage: ChatUsage;
+  /** 阶段十二 P1 · 本次推理的 request_id（评价采集的幂等键） */
+  requestId?: string;
+  /** 阶段十二 P3 · 智能路由解析出的真实模型（请求的是 apipaw-auto 时才有） */
+  resolvedModelId?: string;
 }
 
 /**
@@ -1244,8 +1250,10 @@ export const chatOnce = async (options: ChatOnceOptions): Promise<ChatOnceResult
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const res = await cloudApi.post('/v1/chat/completions', body, { headers });
   const data = (res.data ?? {}) as {
+    id?: string;
     choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
     usage?: ChatUsage;
+    resolved_model_id?: string;
   };
   const message = data.choices?.[0]?.message ?? {};
   let content = String(message.content ?? '');
@@ -1256,7 +1264,13 @@ export const chatOnce = async (options: ChatOnceOptions): Promise<ChatOnceResult
     reasoning = think[1];
     content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
   }
-  return { content, reasoning, usage: (data.usage ?? {}) as ChatUsage };
+  return {
+    content,
+    reasoning,
+    usage: (data.usage ?? {}) as ChatUsage,
+    requestId: String(data.id ?? ''),
+    resolvedModelId: String(data.resolved_model_id ?? ''),
+  };
 };
 
 export interface StreamChatOptions {
@@ -1275,6 +1289,8 @@ export interface StreamChatOptions {
   /** 阶段五 P2 · 回答来源（响应头 X-APIPaw-Dispatch）：node / simulated / fallback。
    *  头在 readyState=2 时就可用 ⇒ 徽标能在流开始时就亮出来。 */
   onDispatch?: (mode: string) => void;
+  /** 阶段十二 P1 · 本次推理的 request_id（评价采集的幂等键）。 */
+  onRequestId?: (requestId: string) => void;
   onReasoning?: (delta: string) => void;
   onContent?: (delta: string) => void;
   onUsage?: (usage: ChatUsage) => void;
@@ -1293,7 +1309,7 @@ export interface StreamChatHandle {
  * 相比 fetch 的 ReadableStream，XMLHttpRequest 在 Expo Web 与原生端均可稳定拿到分片文本。
  */
 export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
-  const { model, messages, onOpen, onDispatch, onReasoning, onContent, onUsage, onDone, onError } = options;
+  const { model, messages, onOpen, onDispatch, onRequestId, onReasoning, onContent, onUsage, onDone, onError } = options;
   const apiKey = options.apiKey ?? usePawStore.getState().apiKey;
 
   const xhr = new XMLHttpRequest();
@@ -1371,6 +1387,9 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
       try {
         const mode = xhr.getResponseHeader('X-APIPaw-Dispatch');
         if (mode) onDispatch?.(mode);
+        // 阶段十二 P1：request_id 头（评价采集的幂等键）
+        const requestId = xhr.getResponseHeader('X-Request-ID');
+        if (requestId) onRequestId?.(requestId);
       } catch {
         /* 某些环境不支持读响应头，忽略即可（usage 里还有一份 answer_source） */
       }
@@ -1759,6 +1778,12 @@ export interface LeaderboardNode {
   peak_throughput_tps: number | null;
   total_node_share_usd: number;
   credit_score: number;
+  /** 阶段十二 P1 · 买家好评数 */
+  positive_feedbacks?: number;
+  /** 阶段十二 P1 · 收到的评价总数 */
+  feedback_total?: number;
+  /** 阶段十二 P1 · 好评率（无样本为 null） */
+  approval_rate?: number | null;
   last_seen: number;
 }
 
@@ -1875,3 +1900,77 @@ export const submitCreatorWithdrawal = async (
   return res.data;
 };
 
+
+/* ===================== 阶段十二 P1/P2 · 回答质量打分与黄金语料工坊 ===================== */
+
+/** 提交买家对一次回答的评价（👍 1 / 👎 -1 / 采纳 0）。
+ *
+ * 服务端按 `request_id` **幂等**更新；`rating === 1` 且回答非空时
+ * 自动进入黄金语料池（`is_golden = 1`）。
+ */
+export const submitFeedback = async (payload: {
+  rating: number;
+  request_id?: string;
+  prompt_text?: string;
+  completion_text?: string;
+  model_id?: string;
+  node_id?: string;
+  copied?: number;
+  ttft_ms?: number;
+  throughput_tps?: number;
+}): Promise<{
+  status: string;
+  request_id: string;
+  sample_id: number;
+  created: boolean;
+  rating: number;
+  is_golden: boolean;
+}> => {
+  const res = await cloudApi.post('/api/v1/user/feedback', payload);
+  return res.data;
+};
+
+/** 黄金语料池概览（OWNER） */
+export interface DatasetSummary {
+  status: string;
+  total: number;
+  golden: number;
+  positive: number;
+  negative: number;
+  adopted: number;
+  copied: number;
+  models: Array<{ model_id: string; count: number }>;
+  recent: Array<{
+    id: number;
+    request_id: string;
+    account_handle: string;
+    model_id: string;
+    node_id: string;
+    prompt_text: string;
+    completion_text: string;
+    rating: number;
+    copied: number;
+    is_golden: number;
+    ttft_ms: number;
+    throughput_tps: number;
+    created_at: number;
+  }>;
+}
+
+export const fetchDatasetSummary = async (): Promise<DatasetSummary> => {
+  const res = await cloudApi.get('/api/v1/owner/datasets/summary');
+  return res.data;
+};
+
+/** 一键导出语料（OWNER）—— `format` 为 `sft` 或 `dpo`。
+ *
+ * 后端返回 `application/x-ndjson`（每行一个 JSON）⇒ 这里拿到的是**文本**，
+ * 前端直接生成 Blob 触发浏览器下载。
+ */
+export const exportDataset = async (format: 'sft' | 'dpo'): Promise<string> => {
+  const res = await cloudApi.get('/api/v1/owner/datasets/export', {
+    params: { format },
+    responseType: 'text',
+  });
+  return typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '');
+};

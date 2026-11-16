@@ -93,6 +93,17 @@ interface PawState {
    */
   modelCatalogVersion: number;
 
+  /**
+   * 提现台版本号（阶段十二 P0 · 零刷新双向联动）。
+   *
+   * 此前「提现申请」与「提现审批」是两条单向链路：申请卡提交后，
+   * 审批台要靠人手点「刷新」才看得到新申请（E2E 里必须显式点 `withdrawal-refresh`）。
+   * 现在提交方调 ``bumpWithdrawalsVersion()``，订阅该版本号的组件立刻重拉，
+   * **提交 ⇄ 审批双向零刷新实时联动**。
+   * 用版本号而不是事件总线：跨组件最小耦合、天然幂等（同 modelCatalogVersion 的思路）。
+   */
+  withdrawalsVersion: number;
+
   setRoleMode: (mode: RoleMode) => void;
   setApiKey: (key: string) => void;
   setBalanceUsd: (balance: number) => void;
@@ -114,6 +125,8 @@ interface PawState {
   markSessionReady: () => void;
   /** 模型目录有变动 —— Playground 重新拉取模型列表（阶段九 P1） */
   bumpModelCatalog: () => void;
+  /** 提现申请/审批有变动 —— 提现卡与审批台立即重拉（阶段十二 P0） */
+  bumpWithdrawalsVersion: () => void;
 }
 
 export const usePawStore = create<PawState>((set) => ({
@@ -152,6 +165,7 @@ export const usePawStore = create<PawState>((set) => ({
   sessionReady: false,
 
   modelCatalogVersion: 0,
+  withdrawalsVersion: 0,
 
   setRoleMode: (roleMode) => set({ roleMode }),
   setApiKey: (apiKey) => {
@@ -204,6 +218,9 @@ export const usePawStore = create<PawState>((set) => ({
 
   bumpModelCatalog: () =>
     set({ modelCatalogVersion: usePawStore.getState().modelCatalogVersion + 1 }),
+
+  bumpWithdrawalsVersion: () =>
+    set({ withdrawalsVersion: usePawStore.getState().withdrawalsVersion + 1 }),
 }));
 
 /**
