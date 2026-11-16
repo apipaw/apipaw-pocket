@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   StyleSheet,
   Text,
@@ -22,7 +23,7 @@ import {
   toggleNodePause,
 } from '../api/cloudClient';
 import { usePawStore } from '../store/usePawStore';
-import { colors, fontSize, radius, spacing } from '../theme';
+import { colors, fontSize, monoFont, radius, spacing } from '../theme';
 import { Pill, StatusDot, Toggle } from './ui';
 
 /**
@@ -162,6 +163,27 @@ const NodeGovernanceCard: React.FC = () => {
       setIssueError(describeCloudError(e, 'session'));
     } finally {
       setIssuing(false);
+    }
+  };
+
+  // 阶段八 P2：本机 Agent 面板的「预填链接」——
+  //   http://127.0.0.1:52415/ui?node_id=xxx&node_secret=yyy
+  // Agent v1.0.12 起，面板会自己从地址栏读这两个参数并填好（密钥读完即抹掉）。
+  const localAgentUrl = useMemo(() => {
+    const id = issued?.node_id ?? '';
+    const secret = issued?.node_secret ?? '';
+    if (!id || !secret) return '';
+    return `http://127.0.0.1:52415/ui?node_id=${encodeURIComponent(
+      id,
+    )}&node_secret=${encodeURIComponent(secret)}`;
+  }, [issued?.node_id, issued?.node_secret]);
+
+  const openLocalAgent = async () => {
+    if (!localAgentUrl) return;
+    try {
+      await Linking.openURL(localAgentUrl);
+    } catch (e: unknown) {
+      setIssueError('无法打开本机 Agent 面板，请手动复制上面的链接');
     }
   };
 
@@ -450,6 +472,20 @@ const NodeGovernanceCard: React.FC = () => {
               </TouchableOpacity>
             </View>
 
+            {/* 阶段八 P2：一键填入本机 Agent —— 点开即自动预填 Node ID / Secret，
+                不用再手抄这两个最容易抄错的字符。 */}
+            <TouchableOpacity
+              testID="issued-open-agent"
+              style={styles.agentLinkBtn}
+              onPress={openLocalAgent}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.agentLinkText}>一键填入本机 Agent</Text>
+            </TouchableOpacity>
+            <Text style={styles.agentLinkHint} testID="issued-agent-url">
+              {localAgentUrl}
+            </Text>
+
             <Text style={styles.hint}>
               指纹 {issued?.secret_fingerprint ?? '-'} · 把它填进 Agent 面板即可连上云端。
               密钥**不会**再次显示，丢了就重新签发（会轮换旧密钥）。
@@ -692,6 +728,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.borderStrong,
+  },
+  agentLinkBtn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+  },
+  agentLinkText: { color: colors.accent, fontSize: fontSize.xs, fontWeight: '800' },
+  agentLinkHint: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    fontFamily: monoFont,
   },
   copyBtnText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '800' },
   hint: { color: colors.textMuted, fontSize: fontSize.xs, lineHeight: 17, marginTop: spacing.sm },

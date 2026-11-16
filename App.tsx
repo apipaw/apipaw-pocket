@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { HostTab, hydrateSession, usePawStore } from './src/store/usePawStore';
 import {
+  claimTrialFaucet,
+  describeFaucetError,
   fetchCreatorIdentity,
   fetchOwnerDashboard,
   fetchOwnerRevenue,
@@ -78,6 +80,10 @@ export default function App() {
   const [network, setNetwork] = useState<NetworkHealth | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [keyModalVisible, setKeyModalVisible] = useState(false);
+  // 阶段八 P1：新手体验金（余额 $0 状态区）
+  const [faucetBusy, setFaucetBusy] = useState(false);
+  const [faucetMsg, setFaucetMsg] = useState<string | null>(null);
+  const [faucetOk, setFaucetOk] = useState(false);
   const [walletModalVisible, setWalletModalVisible] = useState(false);
   const [keyInput, setKeyInput] = useState(apiKey);
 
@@ -224,6 +230,37 @@ export default function App() {
     setKeyModalVisible(true);
   };
 
+  /**
+   * 领取新手体验金 $0.50（阶段八 P1）。
+   *
+   * 余额 $0 的买家**一分钱都花不掉** —— 于是「真流式推理」根本跑不起来。
+   * 这个按钮把闭环补上：领取 → 余额立刻刷新 → 马上能发一次真实推理。
+   */
+  /** 签发弹窗里领到体验金后的回调：只刷新余额显示（钱已经到账了） */
+  const handleFaucetGranted = (balance: number) => {
+    setBalanceUsd(balance);
+    loadUsage();
+  };
+
+  const handleClaimFaucet = async (key?: string) => {
+    const useKey = key || apiKey;
+    if (!useKey) return;
+    setFaucetBusy(true);
+    setFaucetMsg(null);
+    try {
+      const rec = await claimTrialFaucet(useKey);
+      setFaucetOk(true);
+      setFaucetMsg(`已到账 $${(rec.amount_usd ?? 0).toFixed(2)}`);
+      setBalanceUsd(rec.balance_usd ?? 0);
+      loadUsage();
+    } catch (e) {
+      setFaucetOk(false);
+      setFaucetMsg(describeFaucetError(e));
+    } finally {
+      setFaucetBusy(false);
+    }
+  };
+
   // 只保留 6 位前缀 —— 放大到 18px 后 8 位前缀会挤爆指标格
   const maskedKey = apiKey ? `${apiKey.substring(0, 6)}••••${apiKey.slice(-4)}` : '未配置';
 
@@ -337,6 +374,33 @@ export default function App() {
                   <Text style={styles.balanceUnit}>USD</Text>
                 </View>
                 <Text style={styles.balanceCaption}>可用余额 · 可直接抵扣推理结算</Text>
+
+                {/* 阶段八 P1：余额 $0 时给出「一键领体验金」入口 ——
+                    没有余额就发不出真实推理，这一步是把闭环补上的最后一块拼图。 */}
+                {apiKey && balanceUsd <= 0 ? (
+                  <View style={styles.faucetBox} testID="balance-faucet-box">
+                    {faucetOk ? (
+                      <Text style={styles.faucetOkText} testID="balance-faucet-ok">
+                        ✓ {faucetMsg}
+                      </Text>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.faucetBtn, faucetBusy && styles.btnDisabled]}
+                        onPress={() => handleClaimFaucet()}
+                        disabled={faucetBusy}
+                        activeOpacity={0.8}
+                        testID="balance-faucet-btn"
+                      >
+                        <Text style={styles.faucetBtnText}>免费领取 $0.50 新手体验金</Text>
+                      </TouchableOpacity>
+                    )}
+                    {faucetMsg && !faucetOk ? (
+                      <Text style={styles.faucetErrText} testID="balance-faucet-error">
+                        {faucetMsg}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
 
                 <View style={styles.balanceMeta}>
                   <View style={styles.balanceMetaCell}>
@@ -608,7 +672,7 @@ export default function App() {
             <Text style={styles.modalHint}>
               密钥将保存在本机浏览器 (localStorage)，仅用于向云端网关 https://cloud.apipaw.com 发起请求
             </Text>
-            <KeyIssuePanel onAdopt={handleAdoptIssuedKey} />
+            <KeyIssuePanel onAdopt={handleAdoptIssuedKey} onFaucet={handleFaucetGranted} />
             <TextInput
               style={styles.modalInput}
               value={keyInput}
@@ -757,6 +821,22 @@ const styles = StyleSheet.create({
   balanceValue: { fontSize: fontSize.hero, fontWeight: '800', letterSpacing: -1.5 },
   balanceUnit: { color: colors.textSecondary, fontSize: fontSize.title, fontWeight: '700' },
   balanceCaption: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: -spacing.sm },
+
+  // 阶段八 P1 · 新手体验金入口
+  faucetBox: { marginTop: spacing.sm, gap: 4 },
+  faucetBtn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+  },
+  faucetBtnText: { color: colors.accent, fontSize: fontSize.xs, fontWeight: '800' },
+  faucetOkText: { color: colors.accent, fontSize: fontSize.xs, fontWeight: '700' },
+  faucetErrText: { color: colors.danger, fontSize: fontSize.xs },
+  btnDisabled: { opacity: 0.5 },
   balanceMeta: {
     flexDirection: 'row',
     gap: spacing.md,

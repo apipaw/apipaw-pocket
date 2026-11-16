@@ -7,7 +7,13 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { describeCloudError, issueApiKey, IssuedApiKey } from '../api/cloudClient';
+import {
+  claimTrialFaucet,
+  describeCloudError,
+  describeFaucetError,
+  issueApiKey,
+  IssuedApiKey,
+} from '../api/cloudClient';
 import { colors, fontSize, monoFont, radius, spacing } from '../theme';
 
 /**
@@ -27,14 +33,20 @@ import { colors, fontSize, monoFont, radius, spacing } from '../theme';
 type Props = {
   /** 用户确认保存后回调（父组件负责写入 localStorage 并关闭弹窗） */
   onAdopt: (apiKey: string) => void;
+  /** 体验金到账后回调（父组件刷新余额显示） */
+  onFaucet?: (balanceUsd: number) => void;
 };
 
-export default function KeyIssuePanel({ onAdopt }: Props) {
+export default function KeyIssuePanel({ onAdopt, onFaucet }: Props) {
   const [issuing, setIssuing] = useState(false);
   const [result, setResult] = useState<IssuedApiKey | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  // 阶段八 P1：新手体验金（终身一次）
+  const [faucetBusy, setFaucetBusy] = useState(false);
+  const [faucetMsg, setFaucetMsg] = useState<string | null>(null);
+  const [faucetOk, setFaucetOk] = useState(false);
 
   const handleIssue = async () => {
     setIssuing(true);
@@ -65,6 +77,30 @@ export default function KeyIssuePanel({ onAdopt }: Props) {
     } catch {
       // 剪贴板不可用（非安全上下文 / 权限被拒）—— 明文仍在界面上, 手动选中即可
       setCopied(false);
+    }
+  };
+
+  /**
+   * 领取新手体验金 $0.50（阶段八 P1）。
+   *
+   * 走到这一步的用户手里只有一把 $0 余额的 Key —— 没有一分钱可花，
+   * 于是「真流式推理」根本跑不起来。这个按钮把最后一块拼图补上：
+   * **点一下 → 到账 $0.50 → 立刻能跑一次真推理**。
+   */
+  const handleFaucet = async () => {
+    if (!result) return;
+    setFaucetBusy(true);
+    setFaucetMsg(null);
+    try {
+      const rec = await claimTrialFaucet(result.api_key);
+      setFaucetOk(true);
+      setFaucetMsg(`已到账 $${(rec.amount_usd ?? 0).toFixed(2)} —— 现在就能发起真实推理了`);
+      onFaucet?.(rec.balance_usd ?? 0);
+    } catch (e) {
+      setFaucetOk(false);
+      setFaucetMsg(describeFaucetError(e));
+    } finally {
+      setFaucetBusy(false);
     }
   };
 
@@ -123,8 +159,34 @@ export default function KeyIssuePanel({ onAdopt }: Props) {
             </Text>
           </View>
           <Text style={styles.balanceNote} testID="issue-key-balance-note">
-            初始余额 ${result.balance_usd.toFixed(2)} —— 充值后才能发起推理请求
+            初始余额 ${result.balance_usd.toFixed(2)} —— 领完新手体验金即可发起真实推理
           </Text>
+
+          {/* 阶段八 P1 · 新手体验金水龙头 —— 签发成功弹窗内的领取入口 */}
+          {faucetOk ? (
+            <Text style={styles.faucetOk} testID="issue-key-faucet-ok">
+              ✓ {faucetMsg}
+            </Text>
+          ) : (
+            <TouchableOpacity
+              style={[styles.btn, styles.btnGhost, styles.faucetBtn]}
+              onPress={handleFaucet}
+              disabled={faucetBusy}
+              activeOpacity={0.8}
+              testID="issue-key-faucet-btn"
+            >
+              {faucetBusy ? (
+                <ActivityIndicator size="small" color={colors.textSecondary} />
+              ) : (
+                <Text style={styles.btnGhostText}>免费领取 $0.50 新手体验金</Text>
+              )}
+            </TouchableOpacity>
+          )}
+          {faucetMsg && !faucetOk ? (
+            <Text style={styles.faucetErr} testID="issue-key-faucet-error">
+              {faucetMsg}
+            </Text>
+          ) : null}
 
           <View style={styles.actionRow}>
             <TouchableOpacity
@@ -241,6 +303,10 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center' },
   metaText: { color: colors.textMuted, fontSize: fontSize.xs, fontFamily: monoFont, flex: 1 },
   balanceNote: { color: colors.warn, fontSize: fontSize.xs, fontWeight: '700' },
+
+  faucetBtn: { width: '100%' },
+  faucetOk: { color: colors.accent, fontSize: fontSize.xs, fontWeight: '700' },
+  faucetErr: { color: colors.danger, fontSize: fontSize.xs },
 
   actionRow: { flexDirection: 'row', gap: spacing.sm },
   actionBtn: { flex: 1 },

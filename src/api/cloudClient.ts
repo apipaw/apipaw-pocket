@@ -568,6 +568,59 @@ export const issueApiKey = async (): Promise<IssuedApiKey> => {
   return res.data;
 };
 
+// ----------------- 阶段八 P1 · 新手体验金水龙头 -----------------
+
+/**
+ * 领取新手体验金的返回体。
+ *
+ * 后端约束（**契约**，不是实现细节）:
+ *   - 每个账户**终身一次** —— 已有充值/消费流水或余额 > 0 的账户一律拒绝;
+ *   - 每 IP 每小时 5 次 —— 超限返回 429;
+ *   - 入账走唯一白名单入口 ``db.add_balance`` ⇒ 余额与流水同事务同生共死。
+ */
+export interface FaucetResult {
+  status: string;
+  account_handle: string;
+  amount_usd: number;
+  balance_usd: number;
+  duplicate: boolean;
+  trial: boolean;
+}
+
+/**
+ * 领取新手体验金 $0.50。
+ *
+ * ⚠️ 这里**不走** ``cloudApi`` 拦截器 —— 刚签发的 Key 还没进 store，
+ * 拦截器会塞旧 Key（那就领到别人头上去了）。因此显式带 Authorization 头。
+ */
+export const claimTrialFaucet = async (apiKey: string): Promise<FaucetResult> => {
+  const res = await axios.post<FaucetResult>(
+    `${CLOUD_BASE_URL}/api/v1/user/faucet`,
+    {},
+    {
+      timeout: CLOUD_REQUEST_TIMEOUT_MS,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    },
+  );
+  return res.data;
+};
+
+/** 体验金失败时后端给出的机器可读原因（前端据此给不同提示） */
+export const describeFaucetError = (e: unknown): string => {
+  const anyErr = e as {
+    response?: { status?: number; data?: { detail?: string; code?: string } };
+  };
+  const status = anyErr?.response?.status;
+  const detail = anyErr?.response?.data?.detail;
+  if (status === 429) return '领取过于频繁（每个 IP 每小时最多 5 次），请稍后再试。';
+  if (status === 409) return detail || '该账户不符合新手体验金条件。';
+  if (status === 401) return 'API Key 无效 —— 请重新签发或设置密钥。';
+  return detail || describeCloudError(e);
+};
+
 // ----------------- 买家 API -----------------
 
 export const fetchUserUsage = async (): Promise<UserUsage> => {
