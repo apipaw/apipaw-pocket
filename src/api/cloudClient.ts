@@ -1655,3 +1655,108 @@ export const decideOwnerWithdrawal = async (
   );
   return res.data;
 };
+
+/* ===================== 阶段十 P0 · 业主管理口令解锁 ===================== */
+
+/**
+ * 用**管理口令**换取一个标准 OWNER 会话（免钱包插件）。
+ *
+ * 与钱包会话**完全同构**：同一套 JWT / `auth_sessions` / 服务端按 DB 回查角色，
+ * 所以解锁之后全部业主卡片自动点亮，不需要任何额外的前端鉴权分支。
+ *
+ * ⚠️ 服务端对失败做 IP 频控（900s 内 5 次 ⇒ 429），前端不做本地重试。
+ */
+export const ownerPasskeyUnlock = async (
+  passkey: string,
+): Promise<{
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: {
+    handle: string;
+    role: string;
+    wallet: string;
+    status: string;
+    account_type: string;
+  };
+}> => {
+  const res = await cloudApi.post('/api/v1/auth/owner-passkey', { passkey });
+  return res.data;
+};
+
+/** 管理口令失败提示（401/429/503 各说各的话） */
+export const describePasskeyError = (e: unknown): string => {
+  const err = e as { response?: { status?: number; data?: { detail?: string } } };
+  const status = err?.response?.status;
+  const detail = err?.response?.data?.detail;
+  if (status === 401) return '管理口令不正确';
+  if (status === 429) return '口令错误次数过多，请 15 分钟后再试';
+  if (status === 503) return '服务端未配置业主管理口令';
+  return detail || '解锁失败，请重试';
+};
+
+/* ===================== 阶段十 P1 · 卡密作废 + 买家账单 ===================== */
+
+/** OWNER 作废一张尚未核销的充值卡密（已核销 ⇒ 409） */
+export const revokeVoucher = async (
+  voucherId: number,
+): Promise<{ status: string; voucher: VoucherRow }> => {
+  const res = await cloudApi.post('/api/v1/owner/vouchers/revoke', {
+    voucher_id: voucherId,
+  });
+  return res.data;
+};
+
+/** 买家个人收支流水的一行（金额 9 位小数，服务端不截断） */
+export interface LedgerEntry {
+  id: number;
+  entry_type: string;
+  direction: number;
+  amount_usd: number;
+  balance_after_usd: number;
+  model_id: string;
+  node_id: string;
+  request_id: string;
+  note: string;
+  created_at: number;
+}
+
+export const fetchBuyerLedger = async (
+  limit: number = 30,
+): Promise<{
+  status: string;
+  account_handle: string;
+  count: number;
+  entries: LedgerEntry[];
+}> => {
+  const res = await cloudApi.get('/api/v1/user/ledger', { params: { limit } });
+  return res.data;
+};
+
+/* ===================== 阶段十 P2 · 全网算力节点排行榜 ===================== */
+
+/** 排行榜的一行（公开、脱敏：只回产能与贡献） */
+export interface LeaderboardNode {
+  node_id: string;
+  node_name: string;
+  online: boolean;
+  status: string;
+  models: string[];
+  is_paused: boolean;
+  requests: number;
+  tokens: number;
+  avg_ttft_ms: number | null;
+  peak_ttft_ms: number | null;
+  avg_throughput_tps: number | null;
+  peak_throughput_tps: number | null;
+  total_node_share_usd: number;
+  credit_score: number;
+  last_seen: number;
+}
+
+export const fetchNodeLeaderboard = async (
+  limit: number = 20,
+): Promise<{ status: string; count: number; nodes: LeaderboardNode[] }> => {
+  const res = await cloudApi.get('/api/v1/network/leaderboard', { params: { limit } });
+  return res.data;
+};

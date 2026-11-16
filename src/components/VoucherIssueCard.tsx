@@ -12,6 +12,7 @@ import {
   describeCloudError,
   fetchOwnerVouchers,
   issueVouchers,
+  revokeVoucher,
 } from '../api/cloudClient';
 import { usePawStore } from '../store/usePawStore';
 import { colors, fontSize, radius, spacing } from '../theme';
@@ -37,6 +38,8 @@ const VoucherIssueCard: React.FC = () => {
   const [plaintext, setPlaintext] = useState<string[]>([]);
   const [rows, setRows] = useState<VoucherRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [revokingId, setRevokingId] = useState<number>(0);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   const isOwner = sessionRole === 'OWNER';
 
@@ -73,6 +76,22 @@ const VoucherIssueCard: React.FC = () => {
       setBusy(false);
     }
   }, [amount, count, loadRows]);
+
+  const revoke = useCallback(
+    async (voucherId: number) => {
+      setRevokingId(voucherId);
+      setRowError(null);
+      try {
+        await revokeVoucher(voucherId);
+        await loadRows();
+      } catch (e: unknown) {
+        setRowError(describeCloudError(e, 'session'));
+      } finally {
+        setRevokingId(0);
+      }
+    },
+    [loadRows],
+  );
 
   if (!sessionToken) {
     return (
@@ -160,6 +179,11 @@ const VoucherIssueCard: React.FC = () => {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>卡密台账（只含前缀与状态）</Text>
+        {rowError ? (
+          <Text style={styles.rowErrorText} testID="voucher-revoke-error">
+            ⚠️ {rowError}
+          </Text>
+        ) : null}
         {loading ? (
           <Text style={styles.hint}>正在读取台账…</Text>
         ) : rows.length === 0 ? (
@@ -178,6 +202,20 @@ const VoucherIssueCard: React.FC = () => {
               >
                 {row.status}
               </Text>
+              {/* 阶段十 P1：只允许把 ACTIVE 作废；已核销的卡密服务端会回 409 */}
+              {row.status === 'ACTIVE' ? (
+                <TouchableOpacity
+                  style={[styles.revokeBtn, revokingId === row.id && styles.btnDisabled]}
+                  onPress={() => void revoke(row.id)}
+                  disabled={revokingId === row.id}
+                  activeOpacity={0.8}
+                  testID={`voucher-revoke-btn-${row.id}`}
+                >
+                  <Text style={styles.revokeBtnText}>
+                    {revokingId === row.id ? '作废中…' : '作废'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           ))
         )}
@@ -279,6 +317,15 @@ const styles = StyleSheet.create({
   rowStatus: { color: colors.accent, fontSize: fontSize.xs, fontWeight: '800' },
   rowStatusUsed: { color: colors.textMuted },
   rowStatusRevoked: { color: colors.danger },
+  revokeBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.danger,
+  },
+  revokeBtnText: { color: colors.danger, fontSize: fontSize.xs, fontWeight: '800' },
+  rowErrorText: { color: colors.danger, fontSize: fontSize.xs, fontWeight: '700', marginBottom: 4 },
 });
 
 export default VoucherIssueCard;

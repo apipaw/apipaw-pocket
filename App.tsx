@@ -42,6 +42,9 @@ import VoucherIssueCard from './src/components/VoucherIssueCard';
 import WithdrawalApprovalCard from './src/components/WithdrawalApprovalCard';
 import KeyIssuePanel from './src/components/KeyIssuePanel';
 import WalletPanel from './src/components/WalletPanel';
+import OwnerPasskeyCard from './src/components/OwnerPasskeyCard';
+import BuyerLedgerCard from './src/components/BuyerLedgerCard';
+import NodeLeaderboardCard from './src/components/NodeLeaderboardCard';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
 import { colors, fontSize, radius, spacing } from './src/theme';
 import { injectWebTheme } from './src/ui/webTheme';
@@ -90,6 +93,8 @@ export default function App() {
   const [faucetMsg, setFaucetMsg] = useState<string | null>(null);
   const [faucetOk, setFaucetOk] = useState(false);
   const [walletModalVisible, setWalletModalVisible] = useState(false);
+  // 阶段十 P0：业主管理口令解锁弹窗（免钱包插件）
+  const [passkeyModalVisible, setPasskeyModalVisible] = useState(false);
   const [keyInput, setKeyInput] = useState(apiKey);
 
   const loadData = async () => {
@@ -334,6 +339,24 @@ export default function App() {
               {roleMode === 'BUYER' ? '切换至业主视角' : '切换至买家视角'}
             </Text>
           </TouchableOpacity>
+
+          {/* 阶段十 P0：业主管理口令解锁（没有钱包插件也能进 OWNER 视角）*/}
+          <TouchableOpacity
+            style={styles.passkeyBtn}
+            id="apx-glow-passkey"
+            onPress={() => setPasskeyModalVisible(true)}
+            activeOpacity={0.8}
+            testID="open-passkey-modal"
+          >
+            <StatusDot
+              variant={sessionRole === 'OWNER' ? 'live' : 'static'}
+              color={sessionRole === 'OWNER' ? colors.accent : colors.warn}
+              size={7}
+            />
+            <Text style={styles.passkeyBtnText}>
+              {sessionRole === 'OWNER' ? '已解锁业主' : '口令解锁'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -381,8 +404,11 @@ export default function App() {
                 <Text style={styles.balanceCaption}>可用余额 · 可直接抵扣推理结算</Text>
 
                 {/* 阶段八 P1：余额 $0 时给出「一键领体验金」入口 ——
-                    没有余额就发不出真实推理，这一步是把闭环补上的最后一块拼图。 */}
-                {apiKey && balanceUsd <= 0 ? (
+                    没有余额就发不出真实推理，这一步是把闭环补上的最后一块拼图。
+                    ⚠️ 领取成功后余额会立刻变成 $0.50 —— 若此时把整块折叠掉，
+                    「到账」提示会**跟着余额一起消失**（用户看不到自己领到了）。
+                    所以条件里带上 ``faucetOk``：成功提示要留住。 */}
+                {apiKey && (balanceUsd <= 0 || faucetOk) ? (
                   <View style={styles.faucetBox} testID="balance-faucet-box">
                     {faucetOk ? (
                       <Text style={styles.faucetOkText} testID="balance-faucet-ok">
@@ -457,8 +483,12 @@ export default function App() {
 
             <PlaygroundCard />
             <PublicNodeCard />
+            {/* 阶段十 P1：买家个人收支账单明细（折叠面板，9 位小数）*/}
+            <BuyerLedgerCard />
             {/* 阶段九 P0：全网实时推理与三方分账公示（公开数据）*/}
             <LiveSettlementFeed />
+            {/* 阶段十 P2：全网算力节点贡献排行榜（公开数据）*/}
+            <NodeLeaderboardCard />
             <AnalyticsCard />
           </View>
         ) : (
@@ -638,6 +668,8 @@ export default function App() {
                 <WithdrawalApprovalCard />
                 {/* 阶段九 P0：业主视角同样看得见全网分账公示 */}
                 <LiveSettlementFeed />
+                {/* 阶段十 P2：业主视角同样看得见全网算力节点排行榜 */}
+                <NodeLeaderboardCard />
               </View>
             )}
           </View>
@@ -668,6 +700,41 @@ export default function App() {
                 style={[styles.modalBtn, styles.modalBtnGhost]}
                 onPress={() => setWalletModalVisible(false)}
                 testID="wallet-modal-close"
+              >
+                <Text style={styles.modalBtnGhostText}>关闭</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ---------------- 业主管理口令弹窗（阶段十 P0）---------------- */}
+      <Modal
+        visible={passkeyModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPasskeyModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop} id="apx-modal">
+          <View style={styles.modalCard} id="apx-modal-card">
+            <Text style={styles.modalTitle}>业主管理口令解锁</Text>
+            <Text style={styles.modalHint}>
+              没有钱包插件时的备用入口：输入管理口令换取一个标准 OWNER 会话
+              （与钱包会话完全等价，服务端仍按数据库回查角色）。
+            </Text>
+            <OwnerPasskeyCard
+              onUnlocked={() => {
+                // ⚠️ **不自动关弹窗** —— 关掉会把「✓ 已解锁」提示一起卸载掉，
+                //    用户（和验收脚本）都看不到结果。让用户自己点「关闭」。
+                void loadData();
+                void loadRevenue();
+              }}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnGhost]}
+                onPress={() => setPasskeyModalVisible(false)}
+                testID="passkey-modal-close"
               >
                 <Text style={styles.modalBtnGhostText}>关闭</Text>
               </TouchableOpacity>
@@ -804,6 +871,20 @@ const styles = StyleSheet.create({
     borderColor: colors.purple,
   },
   roleBtnText: { color: colors.purple, fontSize: fontSize.sm, fontWeight: '700' },
+
+  /** 阶段十 P0 · 业主管理口令入口（无插件场景的备用登录）*/
+  passkeyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.warnSoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: colors.warn,
+  },
+  passkeyBtnText: { color: colors.warn, fontSize: fontSize.sm, fontWeight: '700' },
 
   scrollContent: {
     padding: spacing.lg,
