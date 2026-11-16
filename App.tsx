@@ -40,6 +40,7 @@ import ModelUpsertCard from './src/components/ModelUpsertCard';
 import VoucherRedeemCard from './src/components/VoucherRedeemCard';
 import VoucherIssueCard from './src/components/VoucherIssueCard';
 import WithdrawalApprovalCard from './src/components/WithdrawalApprovalCard';
+import EarningsWithdrawCard from './src/components/EarningsWithdrawCard';
 import KeyIssuePanel from './src/components/KeyIssuePanel';
 import WalletPanel from './src/components/WalletPanel';
 import OwnerPasskeyCard from './src/components/OwnerPasskeyCard';
@@ -96,6 +97,9 @@ export default function App() {
   // 阶段十 P0：业主管理口令解锁弹窗（免钱包插件）
   const [passkeyModalVisible, setPasskeyModalVisible] = useState(false);
   const [keyInput, setKeyInput] = useState(apiKey);
+  // 阶段十一 P1：提现审批 ⇒ 收益面板同页实时联动的刷新信号
+  const [withdrawRefreshKey, setWithdrawRefreshKey] = useState(0);
+  const bumpWithdrawRefresh = () => setWithdrawRefreshKey((v) => v + 1);
 
   const loadData = async () => {
     try {
@@ -656,6 +660,8 @@ export default function App() {
             {hostTab === 'ROYALTY' && (
               <View style={styles.column}>
                 <RoyaltyCard />
+                {/* 阶段十一 P1：算力节点 & 创作者收益看板 + 自助提现申请 */}
+                <EarningsWithdrawCard onSubmitted={bumpWithdrawRefresh} />
               </View>
             )}
 
@@ -665,7 +671,12 @@ export default function App() {
                 <PricingApprovalCard />
                 {/* 阶段九 P2/P3：充值卡密签发 + 提现审批台（OWNER）*/}
                 <VoucherIssueCard />
-                <WithdrawalApprovalCard />
+                {/* 阶段十一 P1：与审批台同页联动 —— 批准/驳回后收益面板即时刷新 */}
+                <EarningsWithdrawCard
+                  onSubmitted={bumpWithdrawRefresh}
+                  refreshKey={withdrawRefreshKey}
+                />
+                <WithdrawalApprovalCard onDecided={bumpWithdrawRefresh} />
                 {/* 阶段九 P0：业主视角同样看得见全网分账公示 */}
                 <LiveSettlementFeed />
                 {/* 阶段十 P2：业主视角同样看得见全网算力节点排行榜 */}

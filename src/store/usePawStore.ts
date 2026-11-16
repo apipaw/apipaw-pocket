@@ -119,7 +119,19 @@ interface PawState {
 export const usePawStore = create<PawState>((set) => ({
   roleMode: 'BUYER',
   apiKey: readPersistedApiKey(),
-  balanceUsd: 100.0,
+  /**
+   * 余额初值 = **$0.00**（阶段十一 P0 · 坑点 #9 根治）。
+   *
+   * 🔴 此前这里是 `100.0` —— 一个**凭空捏造的演示余额**。后果：
+   *    新注册账户首屏显示 "$100.00"，与真实余额（$0）不符；
+   *    而「免费领取 $0.50 体验金」入口的显示条件是 `balanceUsd <= 0`，
+   *    于是**首屏永远看不到体验金入口**，用户以为没有这回事。
+   *    （阶段十只能靠把条件改成 `|| faucetOk` 绕过去 —— 治标不治本。）
+   *
+   * 现在初值为 0：未配置 API Key / 新账户真实余额为 0 时，
+   * 首屏精确显示 `$0.00`，体验金与「兑换充值码」入口**稳定可见**。
+   */
+  balanceUsd: 0.0,
   spentTodayUsd: 0,
   dailyLimitUsd: 500.0,
   selectedModelId: 'deepseek-r1',

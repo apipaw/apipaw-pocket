@@ -30,6 +30,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build:web": "expo export -p web",
+    "build:web:gzip": "node scripts/precompress-gzip.mjs",
+    "build:web:release": "expo export -p web && node scripts/precompress-gzip.mjs",
     "typecheck": "tsc --noEmit"
   },
   "private": true

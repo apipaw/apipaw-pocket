@@ -1,0 +1,228 @@
+{
+  "results": [
+    {
+      "name": "①a 控制台站 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-de835a2d4b336856ff513c5869564b5a.js → content-encoding=gzip content-length=430640"
+    },
+    {
+      "name": "①a 控制台站 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "420.5KB"
+    },
+    {
+      "name": "①b Pocket 站 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-de835a2d4b336856ff513c5869564b5a.js → content-encoding=gzip content-length=430640"
+    },
+    {
+      "name": "①b Pocket 站 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "420.5KB"
+    },
+    {
+      "name": "① 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "② 无密钥首屏余额精确显示 $0.00",
+      "pass": true,
+      "detail": "$0.00"
+    },
+    {
+      "name": "③a 打开密钥弹窗",
+      "pass": true,
+      "detail": "弹窗已开"
+    },
+    {
+      "name": "③ 签发新 Key ⇒ 拿到明文",
+      "pass": true,
+      "detail": "paw-sk-4093f…"
+    },
+    {
+      "name": "③ 新账户（真实余额 $0）首屏精确显示 $0.00",
+      "pass": true,
+      "detail": "$0.00"
+    },
+    {
+      "name": "③ 新账户首屏展示「免费领取 $0.50 体验金」入口",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "③ 新账户首屏展示「兑换充值码」入口",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "③d 体验金领取成功",
+      "pass": true,
+      "detail": "✓ 已到账 $0.50"
+    },
+    {
+      "name": "④a Playground「导出代码」按钮存在",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④a 导出代码弹窗已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④b cURL 片段含 /v1/chat/completions",
+      "pass": true,
+      "detail": "curl -N https://cloud.apipaw.com/v1/chat/completions \\ -H \"Content-Type: application/json\" \\ -H \"Authorization"
+    },
+    {
+      "name": "④c Python (OpenAI SDK) 片段正确",
+      "pass": true,
+      "detail": "from openai import OpenAI client = OpenAI( base_url=\"https://cloud.apipaw.com/v1\", api_key=\"paw-sk-xxxxxx\", # "
+    },
+    {
+      "name": "④d 客户端 Base URL 片段正确",
+      "pass": true,
+      "detail": "# ===== APIPaw 第三方客户端一键接入（OpenAI 兼容）===== # Base URL（注意：客户端要填到 /v1 这一层，不要带 /chat/completions） OPENAI_BASE_URL="
+    },
+    {
+      "name": "⑤a 口令弹窗已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤ 管理口令解锁成功",
+      "pass": true,
+      "detail": "✓ 已解锁 OWNER 视角 · 账户 acct_230bad0cd00541e1"
+    },
+    {
+      "name": "⑥a 业主分段导航已出现",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑥b 收益提现面板已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑥b 节点收益区块已出数",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑥b 节点累计分成精确到 9 位小数（win_node_01 = $0.022）",
+      "pass": true,
+      "detail": "$0.022 / 可提 $0.021"
+    },
+    {
+      "name": "⑥c 创作者收益区块已出数",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑥c 创作者累计分成精确到 9 位小数（creator_demo = $0.002397）",
+      "pass": true,
+      "detail": "$0.002397"
+    },
+    {
+      "name": "⑥d GET /api/v1/earnings/summary 返回 9 位小数口径",
+      "pass": true,
+      "detail": "HTTP 200 node=0.022 creator=0.002397"
+    },
+    {
+      "name": "⑦a 提现审批台已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑦a 收益面板与审批台同页",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑦b 提现申请已登记（回执含单号）",
+      "pass": true,
+      "detail": "✅ 节点提现已登记 #8 · $0.001 · PENDING"
+    },
+    {
+      "name": "⑦c 审批台出现该笔待审提现",
+      "pass": true,
+      "detail": "#8"
+    },
+    {
+      "name": "⑦c 批准成功（回填 tx_hash）",
+      "pass": true,
+      "detail": "✓ #8 已批准"
+    },
+    {
+      "name": "⑦c POST /api/v1/owner/node-withdrawals/{id}/decide 返回 200",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "⑦d 收益面板同页联动显示该笔终态",
+      "pass": true,
+      "detail": "#8 · $0.001 已批准 · 2026-11-17 02:26 · tx 0xa1a1a1a1…"
+    },
+    {
+      "name": "⑦e 第二笔提现已登记",
+      "pass": true,
+      "detail": "#9"
+    },
+    {
+      "name": "⑦e 审批台出现第二笔",
+      "pass": true,
+      "detail": "#9"
+    },
+    {
+      "name": "⑦e 驳回成功（额度退回）",
+      "pass": true,
+      "detail": "✓ #9 已驳回"
+    },
+    {
+      "name": "⑦f 创作者提现已登记",
+      "pass": true,
+      "detail": "#2"
+    },
+    {
+      "name": "⑦f 审批台出现创作者提现",
+      "pass": true,
+      "detail": "#2"
+    },
+    {
+      "name": "⑦f 创作者提现驳回成功（额度退回）",
+      "pass": true,
+      "detail": "✓ #2 已驳回"
+    },
+    {
+      "name": "⑧ GET /v1/models（Bearer 鉴权）返回模型清单",
+      "pass": true,
+      "detail": "HTTP 200 models=6"
+    },
+    {
+      "name": "⑧ POST /v1/chat/completions 无凭证返回 401",
+      "pass": true,
+      "detail": "HTTP 401"
+    },
+    {
+      "name": "⑧ POST /v1/chat/completions 返回 OpenAI 兼容结构",
+      "pass": true,
+      "detail": "HTTP 200 choices=1 关于「ping」，qwen2.5:0.5b 的回答如下：\n\n- 直接给出可执行的"
+    },
+    {
+      "name": "⑧ POST /v1/chat/completions stream=true 返回 SSE",
+      "pass": true,
+      "detail": "HTTP 200 content-type=text/event-stream; charset=utf-8 bytes=5792"
+    }
+  ],
+  "passed": 43,
+  "total": 43,
+  "soft": 0,
+  "withdrawalIds": [
+    8,
+    9,
+    2
+  ],
+  "issuedKeyMasked": "paw-sk-4093f…"
+}

@@ -1167,9 +1167,16 @@ export const submitNodeWithdrawal = async (
   amountUsd: number,
   nodeId: string = '',
   note: string = '',
+  payoutWallet: string = '',
 ): Promise<{
   status: string;
-  withdrawal: { id: number; amount_usd: number; amount_paw: number; status: string };
+  withdrawal: {
+    id: number;
+    amount_usd: number;
+    amount_paw: number;
+    status: string;
+    payout_wallet: string;
+  };
   payout_token_address: string;
   chain_channel_enabled: boolean;
 }> => {
@@ -1177,6 +1184,7 @@ export const submitNodeWithdrawal = async (
     amount_usd: amountUsd,
     node_id: nodeId,
     note,
+    payout_wallet: payoutWallet,
   });
   return res.data;
 };
@@ -1760,3 +1768,110 @@ export const fetchNodeLeaderboard = async (
   const res = await cloudApi.get('/api/v1/network/leaderboard', { params: { limit } });
   return res.data;
 };
+
+/* ===================== 阶段十一 P1 · 收益与提现明细聚合 ===================== */
+
+/** 提现台账的一行（钱包地址已脱敏） */
+export interface EarningsWithdrawalRow {
+  id: number;
+  amount_usd: number;
+  amount_paw: number;
+  status: string;
+  tx_hash: string;
+  note: string;
+  payout_wallet: string;
+  created_at: number;
+}
+
+/** 算力节点的收益概览 */
+export interface NodeEarningsSummary {
+  node_id: string;
+  requests: number;
+  tokens: number;
+  /** 累计分成总额（revenue_ledger 已结算口径，9 位小数） */
+  total_share_usd: number;
+  /** 已结清金额 */
+  settled_usd: number;
+  /** 审批中冻结金额 */
+  pending_usd: number;
+  /** 本节点可提现净额 */
+  available_usd: number;
+  /** 该节点是否已绑定业主钱包（未绑定 ⇒ 收益无法归属，也就无法提现） */
+  owner_bound: boolean;
+  owner_wallet_masked: string;
+  /** 该钱包名下**所有**节点的累计分成（提现闸门口径） */
+  owner_total_share_usd: number;
+  /** 该钱包名下所有节点的可提现净额（提现闸门口径） */
+  owner_available_usd: number;
+  withdrawals: EarningsWithdrawalRow[];
+}
+
+/** 模型创作者的收益概览 */
+export interface CreatorEarningsSummary {
+  creator_id: string;
+  author_wallet_masked: string;
+  requests: number;
+  tokens: number;
+  total_share_usd: number;
+  settled_usd: number;
+  pending_usd: number;
+  available_usd: number;
+  withdrawals: EarningsWithdrawalRow[];
+}
+
+export interface EarningsSummary {
+  status: string;
+  node: NodeEarningsSummary | null;
+  creator: CreatorEarningsSummary | null;
+  note: string;
+  limit: number;
+}
+
+/**
+ * 收益与提现明细聚合（**公开只读**）。
+ *
+ * 累计口径取自服务端已结算的 ``revenue_ledger``，与双账本对账同源；
+ * 前端不做任何二次估算，只负责展示。
+ */
+export const fetchEarningsSummary = async (
+  nodeId: string = '',
+  creatorId: string = '',
+  limit: number = 20,
+): Promise<EarningsSummary> => {
+  const params: Record<string, string | number> = { limit };
+  if (nodeId) params.node_id = nodeId;
+  if (creatorId) params.creator_id = creatorId;
+  const res = await cloudApi.get('/api/v1/earnings/summary', { params });
+  return res.data;
+};
+
+/**
+ * 创作者自助提现（阶段十一 P1）。
+ *
+ * `payoutWallet` 必须与账户绑定钱包一致 —— 服务端会校验并拒绝不一致的地址
+ * （否则等于把提现变成「改收款人」漏洞）。
+ */
+export const submitCreatorWithdrawal = async (
+  amountUsd: number,
+  note: string = '',
+  payoutWallet: string = '',
+): Promise<{
+  status: string;
+  withdrawal: {
+    id: number;
+    status: string;
+    amount_usd: number;
+    amount_paw: number;
+    author_wallet: string;
+    payout_wallet: string;
+    remaining_usd: number;
+  };
+}> => {
+  const res = await cloudApi.post('/api/v1/creator/royalty/withdraw', {
+    amount_usd: amountUsd,
+    note,
+    payout_wallet: payoutWallet,
+  });
+  return res.data;
+};
+

@@ -27,7 +27,14 @@ import { colors, fontSize, radius, spacing } from '../theme';
  * 防超额的**第二道闸**在这里：申请期的额度校验可能被绕过（改库、并发），
  * 审批期会重新核对「已占 + 本笔 ≤ 累计收益」，超额直接 400，**不落库**。
  */
-const WithdrawalApprovalCard: React.FC = () => {
+const WithdrawalApprovalCard: React.FC<{
+  /**
+   * 审批动作完成后的回调（阶段十一 P1 · 同页实时联动）。
+   * 父组件借此触发收益卡片的重拉 —— 批准（回填 tx_hash）或驳回（退回额度）
+   * 之后，收益面板立即反映新的可提净额。
+   */
+  onDecided?: () => void;
+}> = ({ onDecided }) => {
   const sessionRole = usePawStore((s) => s.sessionRole);
   const sessionToken = usePawStore((s) => s.sessionToken);
 
@@ -76,13 +83,14 @@ const WithdrawalApprovalCard: React.FC = () => {
         await decideOwnerWithdrawal(kind, row.id, approve, txHash, 'OWNER 审批');
         setNotice(`#${row.id} 已${approve ? '批准' : '驳回'}`);
         await load();
+        onDecided?.();
       } catch (e: unknown) {
         setError(describeCloudError(e, 'session'));
       } finally {
         setBusyKey(null);
       }
     },
-    [txInputs, load],
+    [txInputs, load, onDecided],
   );
 
   if (!sessionToken) {

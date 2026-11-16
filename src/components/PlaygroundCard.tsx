@@ -81,7 +81,7 @@ export interface ChatMessageItem {
   capacityError?: CapacityError;
 }
 
-type ExporterTab = 'curl' | 'python' | 'javascript';
+type ExporterTab = 'curl' | 'python' | 'javascript' | 'client';
 
 // ----------------- 工具函数 -----------------
 
@@ -698,7 +698,49 @@ const response = await client.chat.completions.create({
 
 console.log(response.choices[0].message.content);`;
 
-    return { curl, python, javascript } as Record<ExporterTab, string>;
+    // 阶段十一 P2：第三方客户端接入配置（Cursor / Continue / Cline / LiteLLM）
+    // —— 这些客户端都走 OpenAI 兼容协议，填 Base URL + Key 即可。
+    const client = `# ===== APIPaw 第三方客户端一键接入（OpenAI 兼容）=====
+# Base URL（注意：客户端要填到 /v1 这一层，不要带 /chat/completions）
+OPENAI_BASE_URL=${base}
+OPENAI_API_KEY=paw-sk-xxxxxx
+APIPAW_MODEL=${model}
+
+# --- Cursor（Settings → Models → OpenAI API Key / Override OpenAI Base URL）---
+# Base URL : ${base}
+# API Key  : paw-sk-xxxxxx
+# Model    : ${model}
+
+# --- Continue（~/.continue/config.yaml）---
+# name: APIPaw
+# version: 1.0.0
+# schema: v1
+# models:
+#   - name: ${model}
+#     provider: openai
+#     model: ${model}
+#     apiBase: ${base}
+#     apiKey: \${secrets.APIPAW_API_KEY}
+
+# --- Cline / Roo Code（VS Code 插件设置）---
+# API Provider : OpenAI Compatible
+# Base URL     : ${base}
+# API Key      : paw-sk-xxxxxx
+# Model ID     : ${model}
+
+# --- LiteLLM 代理（自建网关场景）---
+# model_list:
+#   - model_name: ${model}
+#     litellm_params:
+#       model: openai/${model}
+#       api_base: ${base}
+#       api_key: os.environ/APIPAW_API_KEY
+
+# --- 环境变量（Node / Python / Shell 通用）---
+export OPENAI_BASE_URL=${base}
+export OPENAI_API_KEY=paw-sk-xxxxxx`;
+
+    return { curl, python, javascript, client } as Record<ExporterTab, string>;
   }, [selectedModelId, lastPrompt, input, temperature, topP, maxTokens, systemPrompt, streamEnabled]);
 
   const handleCopy = useCallback(async () => {
@@ -1346,6 +1388,7 @@ console.log(response.choices[0].message.content);`;
                   { key: 'curl', label: 'cURL' },
                   { key: 'python', label: 'Python' },
                   { key: 'javascript', label: 'JavaScript' },
+                  { key: 'client', label: '客户端接入' },
                 ] as Array<{ key: ExporterTab; label: string }>
               ).map((tab) => (
                 <TouchableOpacity
