@@ -90,6 +90,12 @@ export interface ChatMessageItem {
   feedbackNotice?: string;
   /** 阶段十二 P1 · 是否是「apipaw-auto」路由出来的回答 */
   autoRouted?: boolean;
+  /** 阶段十二 P3 · 智能路由解析出的真实模型（apipaw-auto / apipaw-moa 才有） */
+  resolvedModelId?: string;
+  /** 阶段十三 P0 · MoA 协同模式：multi_node / self_refine / simulated */
+  moaMode?: string;
+  /** 阶段十四 P1 · 本次注入的黄金记忆条数（0 = 未开启 / 无命中） */
+  goldenBoostCount?: number;
 }
 
 type ExporterTab = 'curl' | 'python' | 'javascript' | 'client';
@@ -455,6 +461,9 @@ const PlaygroundCard: React.FC = () => {
   const [systemPrompt, setSystemPrompt] = useState('');
   // 阶段五 P3 · 流式开关：默认开（保持既有行为），关掉走非流式一次性请求。
   const [streamEnabled, setStreamEnabled] = useState(true);
+  // 阶段十四 P1 · 黄金记忆增强（Live Golden Few-Shot Boost）：**默认开**。
+  // 注入的范例由网关从黄金语料池按当前提问检索，**不向买家额外收输入费**。
+  const [goldenBoost, setGoldenBoost] = useState(true);
 
   const streamRef = useRef<StreamChatHandle | null>(null);
   const runRef = useRef({
@@ -884,6 +893,8 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
         topP,
         maxTokens,
         systemPrompt,
+        // 阶段十四 P1：显式下发黄金记忆增强开关
+        goldenBoost,
       })
         .then((res) => {
           const run = runRef.current;
@@ -900,6 +911,10 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
                     // 阶段十二 P1/P3：request_id（评价幂等键）+ 路由解析结果
                     requestId: res.requestId || m.requestId,
                     autoRouted: !!res.resolvedModelId,
+                    // 阶段十三 P0 / 阶段十四 P1：MoA 模式 + 黄金记忆注入条数
+                    resolvedModelId: res.resolvedModelId || m.resolvedModelId,
+                    moaMode: res.moaMode || m.moaMode,
+                    goldenBoostCount: res.goldenBoostCount ?? m.goldenBoostCount,
                   }
                 : m,
             ),
@@ -933,6 +948,8 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
       topP,
       maxTokens,
       systemPrompt,
+      // 阶段十四 P1：显式下发黄金记忆增强开关
+      goldenBoost,
       // 阶段五 P2 · D8：响应头 X-APIPaw-Dispatch 到达即知来源 → 立刻点亮徽标
       onDispatch: (mode) => {
         setMessages((prev) =>
@@ -943,6 +960,24 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
       onRequestId: (requestId) => {
         setMessages((prev) =>
           prev.map((m) => (m.id === botId ? { ...m, requestId } : m)),
+        );
+      },
+      // 阶段十二 P3：智能路由解析出的真实模型（徽标）
+      onResolvedModel: (modelId) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === botId ? { ...m, resolvedModelId: modelId } : m)),
+        );
+      },
+      // 阶段十三 P0：MoA 协同模式（徽标）
+      onMoaMode: (mode) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === botId ? { ...m, moaMode: mode } : m)),
+        );
+      },
+      // 阶段十四 P1：本次注入了几条黄金记忆（徽标）
+      onGoldenBoost: (count) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === botId ? { ...m, goldenBoostCount: count } : m)),
         );
       },
       onReasoning: (delta) => {
@@ -987,7 +1022,7 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
     });
 
     streamRef.current = handle;
-  }, [input, messages, streaming, selectedModelId, temperature, topP, maxTokens, systemPrompt, streamEnabled]);
+  }, [input, messages, streaming, selectedModelId, temperature, topP, maxTokens, systemPrompt, streamEnabled, goldenBoost]);
 
   const handleStop = () => {
     streamRef.current?.abort();
@@ -1236,6 +1271,33 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
         </Text>
       </View>
 
+      {/* 阶段十四 P1 · 黄金记忆增强开关（默认 ON）。
+          网关会按当前提问从黄金语料池检索最相关的范例，作为 Few-Shot 注入系统提示；
+          注入的 token **不向买家额外收费**（仍按原始输入计费）。 */}
+      <TouchableOpacity
+        style={styles.goldenToggleRow}
+        onPress={() => setGoldenBoost((v) => !v)}
+        activeOpacity={0.75}
+        testID="playground-golden-boost-toggle"
+      >
+        <View style={[styles.streamBox, goldenBoost && styles.streamBoxOn]}>
+          <Text
+            style={[styles.streamBoxText, goldenBoost && styles.streamBoxTextOn]}
+            testID="playground-golden-boost-state"
+          >
+            {goldenBoost ? '✓' : ''}
+          </Text>
+        </View>
+        <View style={styles.goldenToggleTextWrap}>
+          <Text style={styles.goldenToggleTitle} testID="playground-golden-boost-label">
+            ✨ 开启黄金记忆增强（Golden Boost）
+          </Text>
+          <Text style={styles.goldenToggleHint}>
+            按当前提问自动检索黄金语料作为 Few-Shot 注入 · 不额外收费
+          </Text>
+        </View>
+      </TouchableOpacity>
+
       {paramsOpen && (
         <View style={styles.paramsPanel} testID="playground-params-panel">
           <Slider
@@ -1369,6 +1431,33 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
                     <Text style={styles.answerSourceHint}>
                       {sourceMeta.hint}
                     </Text>
+                  </View>
+                ) : null}
+
+                {/* 阶段十三 P0 / 阶段十四 P1 · 智能路由与黄金记忆徽标 */}
+                {message.moaMode || message.resolvedModelId || (message.goldenBoostCount ?? 0) > 0 ? (
+                  <View style={styles.metaBadgeRow} testID="playground-meta-badges">
+                    {message.moaMode ? (
+                      <View style={[styles.metaBadge, styles.metaBadgePurple]} testID="playground-moa-badge">
+                        <Text style={styles.metaBadgeTextPurple}>
+                          🧠 MoA 路由: {message.moaMode}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {message.resolvedModelId ? (
+                      <View style={[styles.metaBadge, styles.metaBadgeCyan]} testID="playground-resolved-model-badge">
+                        <Text style={styles.metaBadgeTextCyan}>
+                          🎯 实际模型: {message.resolvedModelId}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {(message.goldenBoostCount ?? 0) > 0 ? (
+                      <View style={[styles.metaBadge, styles.metaBadgeAccent]} testID="playground-golden-boost-badge">
+                        <Text style={styles.metaBadgeTextAccent}>
+                          ✨ 已注入 {message.goldenBoostCount} 条黄金记忆
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
 
@@ -1984,6 +2073,43 @@ const styles = StyleSheet.create({
   streamBoxOn: { borderColor: colors.accent, backgroundColor: `${colors.accent}22` },
   streamBoxText: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '700' },
   streamBoxTextOn: { color: colors.accent },
+  // 阶段十四 P1 · 黄金记忆增强开关
+  goldenToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  goldenToggleTextWrap: { flex: 1 },
+  goldenToggleTitle: { color: colors.textPrimary, fontSize: fontSize.xs, fontWeight: '700' },
+  goldenToggleHint: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 1 },
+  // 阶段十四 P1 · 智能路由 / 黄金记忆徽标
+  metaBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  metaBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.cardAlt,
+  },
+  metaBadgeAccent: { borderColor: `${colors.accent}66`, backgroundColor: `${colors.accent}14` },
+  metaBadgePurple: { borderColor: `${colors.purple}66`, backgroundColor: `${colors.purple}14` },
+  metaBadgeCyan: { borderColor: `${colors.cyan}66`, backgroundColor: `${colors.cyan}14` },
+  metaBadgeText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '700' },
+  metaBadgeTextAccent: { color: colors.accent, fontSize: fontSize.xs, fontWeight: '700' },
+  metaBadgeTextPurple: { color: colors.purple, fontSize: fontSize.xs, fontWeight: '700' },
+  metaBadgeTextCyan: { color: colors.cyan, fontSize: fontSize.xs, fontWeight: '700' },
   systemInput: {
     minHeight: 64,
     maxHeight: 140,

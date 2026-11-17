@@ -14,9 +14,15 @@ import * as Clipboard from 'expo-clipboard';
 import {
   DatasetExportFormat,
   DatasetSummary,
+  RlaifPair,
+  RlaifRunResult,
+  RlaifStats,
+  RlaifTask,
   describeCloudError,
   exportDataset,
   fetchDatasetSummary,
+  fetchRlaifTasks,
+  runRlaif,
 } from '../api/cloudClient';
 import { colors, fontSize, radius, spacing } from '../theme';
 
@@ -54,6 +60,12 @@ const GoldenDatasetCard: React.FC = () => {
     content: string;
     filename: string;
   } | null>(null);
+  // 阶段十四 P2 · RLAIF 自动验算区
+  const [rlaifTasks, setRlaifTasks] = useState<RlaifTask[]>([]);
+  const [rlaifStats, setRlaifStats] = useState<RlaifStats | null>(null);
+  const [rlaifRunning, setRlaifRunning] = useState(false);
+  const [rlaifResult, setRlaifResult] = useState<RlaifRunResult | null>(null);
+  const [rlaifError, setRlaifError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -67,9 +79,22 @@ const GoldenDatasetCard: React.FC = () => {
     }
   }, []);
 
+  /** 阶段十四 P2：读取 RLAIF 题库 + 历史自动验算统计（失败不影响语料概览）。 */
+  const loadRlaif = useCallback(async () => {
+    try {
+      const res = await fetchRlaifTasks();
+      setRlaifTasks(res.tasks ?? []);
+      setRlaifStats(res.stats ?? null);
+      setRlaifError(null);
+    } catch (e: unknown) {
+      setRlaifError(describeCloudError(e, 'session'));
+    }
+  }, []);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadRlaif();
+  }, [load, loadRlaif]);
 
   /** 触发浏览器下载（Web 端用 Blob + a[download]） */
   const download = useCallback((content: string, filename: string) => {
@@ -143,6 +168,33 @@ const GoldenDatasetCard: React.FC = () => {
     await Clipboard.setStringAsync(preview.content);
     setNotice(`✓ ${preview.filename} 已复制到剪贴板`);
   }, [preview]);
+
+  /**
+   * 阶段十四 P2 · 一键 RLAIF 跑批。
+   *
+   * 网关侧：出题 → 双路候选 → 确定性判分 → 通过者 chosen（进黄金池）、
+   * 未通过者 rejected（进负向池），同 prompt ⇒ 可直接导出 DPO 偏好对。
+   * 跑批只新增语料，**不碰资金账本**。
+   */
+  const handleRlaifRun = useCallback(async () => {
+    setRlaifRunning(true);
+    setRlaifError(null);
+    setNotice(null);
+    try {
+      const res = await runRlaif({});
+      setRlaifResult(res);
+      setNotice(
+        `✓ RLAIF 跑批完成：${res.pairs_created} 组偏好对 · 通过率 ${(res.pass_rate * 100).toFixed(1)}%`,
+      );
+      // 跑批会让黄金池 / 负向池 / DPO 导出池一起变大 ⇒ 刷新计数
+      void load();
+      void loadRlaif();
+    } catch (e: unknown) {
+      setRlaifError(describeCloudError(e, 'session'));
+    } finally {
+      setRlaifRunning(false);
+    }
+  }, [load, loadRlaif]);
 
   const handlePreviewDownload = useCallback(() => {
     if (!preview) return;
@@ -298,6 +350,7 @@ const GoldenDatasetCard: React.FC = () => {
             </Text>
           ) : null}
 
+
           <Text style={styles.sectionTitle}>最近样本（最多 10 条）</Text>
           {(stats?.recent ?? []).length === 0 ? (
             <Text style={styles.emptyText} testID="golden-dataset-empty">
@@ -325,6 +378,76 @@ const GoldenDatasetCard: React.FC = () => {
           )}
         </>
       )}
+
+          {/* 阶段十四 P2 · RLAIF 自动验算与 DPO 自进化跑批 */}
+          <View style={styles.rlaifBox} testID="golden-dataset-rlaif-panel">
+            <View style={styles.rlaifHead}>
+              <Text style={styles.rlaifTitle}>🤖 RLAIF 自动验算与 DPO 自进化跑批</Text>
+              <Text style={styles.rlaifHint} testID="golden-dataset-rlaif-tasks">
+                题库 {rlaifTasks.length} 道 · 历史跑批 {rlaifStats?.runs ?? 0} 次 ·
+                通过率 {((rlaifStats?.pass_rate ?? 0) * 100).toFixed(1)}%
+              </Text>
+            </View>
+            <View style={styles.actions}>
+              <TouchableOpacity
+                style={[styles.exportBtn, rlaifRunning && styles.btnDisabled]}
+                onPress={() => void handleRlaifRun()}
+                disabled={rlaifRunning}
+                activeOpacity={0.8}
+                testID="golden-dataset-rlaif-run"
+              >
+                <Text style={styles.exportBtnText}>
+                  {rlaifRunning ? '跑批中…' : '🤖 运行 RLAIF 自动验算合成'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.exportBtnAlt, rlaifRunning && styles.btnDisabled]}
+                onPress={() => void loadRlaif()}
+                disabled={rlaifRunning}
+                activeOpacity={0.8}
+                testID="golden-dataset-rlaif-refresh"
+              >
+                <Text style={styles.exportBtnAltText}>↻ 刷新跑批状态</Text>
+              </TouchableOpacity>
+            </View>
+            {rlaifError ? (
+              <Text style={styles.errorText} testID="golden-dataset-rlaif-error">
+                ⚠️ {rlaifError}
+              </Text>
+            ) : null}
+            {rlaifResult ? (
+              <View style={styles.rlaifResult} testID="golden-dataset-rlaif-result">
+                <Text style={styles.rlaifResultLine}>
+                  本次生成偏好对{' '}
+                  <Text style={styles.rlaifResultValue} testID="golden-dataset-rlaif-pairs">
+                    {rlaifResult.pairs_created}
+                  </Text>{' '}
+                  组 · 通过率{' '}
+                  <Text style={styles.rlaifResultValue} testID="golden-dataset-rlaif-passrate">
+                    {(rlaifResult.pass_rate * 100).toFixed(1)}%
+                  </Text>
+                </Text>
+                {(rlaifResult.pairs ?? []).slice(0, 5).map((p: RlaifPair) => (
+                  <View key={p.task_id} style={styles.rlaifPairRow} testID={`golden-dataset-rlaif-pair-${p.task_id}`}>
+                    <Text style={styles.rlaifPairTitle}>
+                      {p.task_id} · {p.title}
+                    </Text>
+                    <Text style={styles.rlaifPairChosen} numberOfLines={2}>
+                      ✓ chosen：{p.chosen}
+                    </Text>
+                    <Text style={styles.rlaifPairRejected} numberOfLines={2}>
+                      ✗ rejected：{p.rejected}
+                    </Text>
+                  </View>
+                ))}
+                {(rlaifResult.pairs ?? []).length > 5 ? (
+                  <Text style={styles.emptyText}>
+                    仅预览前 5 组，完整偏好对请用「⬇ 导出 DPO 偏好对」。
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
 
       {/* 阶段十三 P1 · 生成物预览弹窗 */}
       <Modal
@@ -504,6 +627,33 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.5 },
 
   noticeText: { color: colors.accent, fontSize: fontSize.xs, marginTop: spacing.sm, fontWeight: '700' },
+
+  // 阶段十四 P2 · RLAIF 跑批区
+  rlaifBox: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.cardAlt,
+  },
+  rlaifHead: { marginBottom: spacing.xs },
+  rlaifTitle: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '800' },
+  rlaifHint: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
+  rlaifResult: { marginTop: spacing.sm },
+  rlaifResultLine: { color: colors.textSecondary, fontSize: fontSize.xs },
+  rlaifResultValue: { color: colors.accent, fontWeight: '800' },
+  rlaifPairRow: {
+    marginTop: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  rlaifPairTitle: { color: colors.textPrimary, fontSize: fontSize.xs, fontWeight: '700' },
+  rlaifPairChosen: { color: colors.accent, fontSize: fontSize.xs, marginTop: 2 },
+  rlaifPairRejected: { color: colors.danger, fontSize: fontSize.xs, marginTop: 1 },
   sectionTitle: {
     color: colors.textBody,
     fontSize: fontSize.sm,

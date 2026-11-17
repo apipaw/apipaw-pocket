@@ -1214,6 +1214,10 @@ export interface ChatOnceOptions {
   topP?: number;
   maxTokens?: number;
   systemPrompt?: string;
+  /** 阶段十四 P1 · 黄金记忆增强（Few-Shot 注入）。
+   *  `true` ⇒ 请求体显式带 `golden_boost: true`（虚拟元模型默认已开，这里是显式确认）；
+   *  `false` ⇒ 显式关闭；`undefined` ⇒ 不下发该字段，由网关按模型类型自行判定。 */
+  goldenBoost?: boolean;
 }
 
 export interface ChatOnceResult {
@@ -1224,6 +1228,10 @@ export interface ChatOnceResult {
   requestId?: string;
   /** 阶段十二 P3 · 智能路由解析出的真实模型（请求的是 apipaw-auto 时才有） */
   resolvedModelId?: string;
+  /** 阶段十三 P0 · MoA 协同模式（multi_node / self_refine / simulated） */
+  moaMode?: string;
+  /** 阶段十四 P1 · 本次注入的黄金记忆条数（0 = 未开启 / 无命中） */
+  goldenBoostCount?: number;
 }
 
 /**
@@ -1247,6 +1255,8 @@ export const chatOnce = async (options: ChatOnceOptions): Promise<ChatOnceResult
   if (options.temperature !== undefined) body.temperature = options.temperature;
   if (options.topP !== undefined) body.top_p = options.topP;
   if (options.maxTokens !== undefined) body.max_tokens = options.maxTokens;
+  // 阶段十四 P1：显式声明是否要黄金记忆增强（undefined ⇒ 交给网关按模型判定）
+  if (options.goldenBoost !== undefined) body.golden_boost = !!options.goldenBoost;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -1256,6 +1266,8 @@ export const chatOnce = async (options: ChatOnceOptions): Promise<ChatOnceResult
     choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
     usage?: ChatUsage;
     resolved_model_id?: string;
+    moa_mode?: string;
+    golden_boost_count?: number;
   };
   const message = data.choices?.[0]?.message ?? {};
   let content = String(message.content ?? '');
@@ -1272,6 +1284,8 @@ export const chatOnce = async (options: ChatOnceOptions): Promise<ChatOnceResult
     usage: (data.usage ?? {}) as ChatUsage,
     requestId: String(data.id ?? ''),
     resolvedModelId: String(data.resolved_model_id ?? ''),
+    moaMode: String(data.moa_mode ?? ''),
+    goldenBoostCount: Number(data.golden_boost_count ?? 0) || 0,
   };
 };
 
@@ -1287,12 +1301,20 @@ export interface StreamChatOptions {
   maxTokens?: number;
   /** 系统提示词 —— 阶段五 P0 · 决策 D7：计入计费输入 */
   systemPrompt?: string;
+  /** 阶段十四 P1 · 黄金记忆增强（显式下发 `golden_boost`）。 */
+  goldenBoost?: boolean;
   onOpen?: () => void;
   /** 阶段五 P2 · 回答来源（响应头 X-APIPaw-Dispatch）：node / simulated / fallback。
    *  头在 readyState=2 时就可用 ⇒ 徽标能在流开始时就亮出来。 */
   onDispatch?: (mode: string) => void;
   /** 阶段十二 P1 · 本次推理的 request_id（评价采集的幂等键）。 */
   onRequestId?: (requestId: string) => void;
+  /** 阶段十二 P3 · 智能路由解析出的真实模型（响应头 X-APIPaw-Resolved-Model）。 */
+  onResolvedModel?: (modelId: string) => void;
+  /** 阶段十三 P0 · MoA 协同模式（响应头 X-APIPaw-MoA-Mode）。 */
+  onMoaMode?: (mode: string) => void;
+  /** 阶段十四 P1 · 本次注入的黄金记忆条数（响应头 X-APIPaw-Golden-Boost-Count）。 */
+  onGoldenBoost?: (count: number) => void;
   onReasoning?: (delta: string) => void;
   onContent?: (delta: string) => void;
   onUsage?: (usage: ChatUsage) => void;
@@ -1311,7 +1333,7 @@ export interface StreamChatHandle {
  * 相比 fetch 的 ReadableStream，XMLHttpRequest 在 Expo Web 与原生端均可稳定拿到分片文本。
  */
 export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
-  const { model, messages, onOpen, onDispatch, onRequestId, onReasoning, onContent, onUsage, onDone, onError } = options;
+  const { model, messages, onOpen, onDispatch, onRequestId, onResolvedModel, onMoaMode, onGoldenBoost, onReasoning, onContent, onUsage, onDone, onError } = options;
   const apiKey = options.apiKey ?? usePawStore.getState().apiKey;
 
   const xhr = new XMLHttpRequest();
@@ -1392,6 +1414,17 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
         // 阶段十二 P1：request_id 头（评价采集的幂等键）
         const requestId = xhr.getResponseHeader('X-Request-ID');
         if (requestId) onRequestId?.(requestId);
+        // 阶段十二 P3：智能路由解析出的真实模型
+        const resolvedModel = xhr.getResponseHeader('X-APIPaw-Resolved-Model');
+        if (resolvedModel) onResolvedModel?.(resolvedModel);
+        // 阶段十三 P0：MoA 协同模式
+        const moaMode = xhr.getResponseHeader('X-APIPaw-MoA-Mode');
+        if (moaMode) onMoaMode?.(moaMode);
+        // 阶段十四 P1：本次注入的黄金记忆条数
+        const goldenCount = xhr.getResponseHeader('X-APIPaw-Golden-Boost-Count');
+        if (goldenCount !== null && goldenCount !== undefined && goldenCount !== '') {
+          onGoldenBoost?.(Number(goldenCount) || 0);
+        }
       } catch {
         /* 某些环境不支持读响应头，忽略即可（usage 里还有一份 answer_source） */
       }
@@ -1468,6 +1501,8 @@ export const streamChat = (options: StreamChatOptions): StreamChatHandle => {
   if (options.temperature !== undefined) requestBody.temperature = options.temperature;
   if (options.topP !== undefined) requestBody.top_p = options.topP;
   if (options.maxTokens !== undefined) requestBody.max_tokens = options.maxTokens;
+  // 阶段十四 P1：显式声明是否要黄金记忆增强（undefined ⇒ 交给网关按模型判定）
+  if (options.goldenBoost !== undefined) requestBody.golden_boost = !!options.goldenBoost;
   xhr.send(JSON.stringify(requestBody));
 
   return {
@@ -1990,4 +2025,82 @@ export const exportDataset = async (
     responseType: 'text',
   });
   return typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '');
+};
+
+// ----------------- 阶段十四 P2 · RLAIF 自动验算与 DPO 自进化 -----------------
+
+/** 题库条目（**不含答案** —— 答案与规则只有网关内部知道） */
+export interface RlaifTask {
+  id: string;
+  title: string;
+  category: string;
+  prompt: string;
+  must_contain: string[];
+  must_not_contain: string[];
+  min_length: number;
+}
+
+/** 历史跑批统计 */
+export interface RlaifStats {
+  runs: number;
+  total_candidates: number;
+  passed_candidates: number;
+  pass_rate: number;
+  last_run_id?: string;
+  last_run_at?: number;
+}
+
+export interface RlaifTaskBank {
+  status: string;
+  tasks: RlaifTask[];
+  stats: RlaifStats;
+}
+
+export interface RlaifPair {
+  task_id: string;
+  title: string;
+  category: string;
+  prompt: string;
+  chosen: string;
+  rejected: string;
+  checks: Array<{
+    path: string;
+    passed: boolean;
+    checks: Array<{ rule: string; pattern: string; ok: boolean }>;
+  }>;
+}
+
+export interface RlaifRunResult {
+  status: string;
+  run_id: string;
+  tasks: number;
+  pairs_created: number;
+  total_candidates: number;
+  passed_candidates: number;
+  pass_rate: number;
+  pairs: RlaifPair[];
+  dry_run: boolean;
+}
+
+/** 读取 RLAIF 题库 + 历史自动验算统计（OWNER） */
+export const fetchRlaifTasks = async (): Promise<RlaifTaskBank> => {
+  const res = await cloudApi.get('/api/v1/owner/rlaif/tasks');
+  return res.data;
+};
+
+/**
+ * 一键跑批（OWNER）：出题 → 双路候选 → 确定性判分 → 自动配成偏好对。
+ * 通过 ⇒ chosen（进黄金池），未通过 ⇒ rejected（进负向池），两者同 prompt ⇒ 可导 DPO。
+ */
+export const runRlaif = async (options?: {
+  taskIds?: string[];
+  maxTasks?: number;
+  dryRun?: boolean;
+}): Promise<RlaifRunResult> => {
+  const res = await cloudApi.post('/api/v1/owner/rlaif/run', {
+    task_ids: options?.taskIds ?? [],
+    max_tasks: options?.maxTasks ?? 0,
+    dry_run: options?.dryRun ?? false,
+  });
+  return res.data;
 };

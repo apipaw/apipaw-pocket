@@ -1,0 +1,185 @@
+{
+  "results": [
+    {
+      "name": "① 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "② 使用既有买家 Key（签发台 IP 限流兜底）",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "②d 领取一次性体验金",
+      "pass": true,
+      "soft": true,
+      "detail": "没找到领取按钮（可能已被领过）"
+    },
+    {
+      "name": "②e 账户余额可用",
+      "pass": true,
+      "detail": "balance=$3.5"
+    },
+    {
+      "name": "②e-2 余额补足到可覆盖默认模型预扣",
+      "pass": true,
+      "detail": "balance=3.5→6.5"
+    },
+    {
+      "name": "④a 口令弹窗已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④ 管理口令解锁成功",
+      "pass": true,
+      "detail": "✓ 已解锁 OWNER 视角 · 账户 acct_230bad0cd00541e1"
+    },
+    {
+      "name": "④d 业主分段导航已出现",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "②a 黄金语料工坊卡片已渲染",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "②b RLAIF 跑批区已渲染",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "②c 题库非空（题库条数已显示）",
+      "pass": true,
+      "detail": "题库 8 道 · 历史跑批 24 次 · 通过率 50.0%"
+    },
+    {
+      "name": "②d 「🤖 运行 RLAIF 自动验算合成」按钮已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "②e 跑批结果面板已出现",
+      "pass": true,
+      "detail": "已出现"
+    },
+    {
+      "name": "②f 自动生成偏好对数量 ≥ 1",
+      "pass": true,
+      "detail": "pairs=8"
+    },
+    {
+      "name": "②g 通过率已显示",
+      "pass": true,
+      "detail": "pass_rate=50.0%"
+    },
+    {
+      "name": "②h chosen/rejected 预览已渲染（含 depin-001）",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "②i GET /api/v1/owner/rlaif/tasks 返回题库且不泄露答案",
+      "pass": true,
+      "detail": "HTTP 200 tasks=8 leaked=0"
+    },
+    {
+      "name": "②j POST /api/v1/owner/rlaif/run（dry_run）返回确定性验算统计",
+      "pass": true,
+      "detail": "HTTP 200 pass_rate=0.5 pairs=8"
+    },
+    {
+      "name": "②k 导出 dpo 返回合法偏好对 JSONL",
+      "pass": true,
+      "detail": "HTTP 200 lines=8"
+    },
+    {
+      "name": "②l DPO 导出池含 RLAIF 自动合成的偏好对",
+      "pass": true,
+      "detail": "rlaif_pairs=8"
+    },
+    {
+      "name": "①a 买家视角 Playground 已渲染",
+      "pass": true,
+      "detail": "可见"
+    },
+    {
+      "name": "①b 「✨ 开启黄金记忆增强（Golden Boost）」开关已渲染",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "①c 开关默认 ON",
+      "pass": true,
+      "detail": "state=\"✓\""
+    },
+    {
+      "name": "①d 开关文案正确",
+      "pass": true,
+      "detail": "✓ ✨ 开启黄金记忆增强（Golden Boost） 按当前提问自动检索黄金语料作为 Few-Shot 注入 · 不额外收费"
+    },
+    {
+      "name": "①e-0 已切换到便宜模型",
+      "pass": true,
+      "detail": "Qwen 2.5 0.5B (A电脑实测模型)"
+    },
+    {
+      "name": "①e 提问后回答已渲染",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "①f 回答上出现「✨ 已注入 N 条黄金记忆」徽标",
+      "pass": true,
+      "detail": "✨ 已注入 2 条黄金记忆"
+    },
+    {
+      "name": "①g golden_boost=false ⇒ 注入条数为 0",
+      "pass": true,
+      "detail": "header=0"
+    },
+    {
+      "name": "①h golden_boost=true ⇒ 注入条数 ≥ 1",
+      "pass": true,
+      "detail": "header=2"
+    },
+    {
+      "name": "①i 注入的 Few-Shot token **不向买家额外收费**（输入 token 与费用完全一致）",
+      "pass": true,
+      "detail": "prompt_tokens 42→42 / cost 0→0"
+    },
+    {
+      "name": "console 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-1224f2b5894a10454aad53d530e62a2d.js → content-encoding=gzip content-length=435716"
+    },
+    {
+      "name": "console 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "425.5KB"
+    },
+    {
+      "name": "pocket 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-1224f2b5894a10454aad53d530e62a2d.js → content-encoding=gzip content-length=435716"
+    },
+    {
+      "name": "pocket 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "425.5KB"
+    }
+  ],
+  "passed": 34,
+  "total": 34,
+  "soft": 1,
+  "issuedKeyMasked": "paw-sk-****",
+  "pageErrors": [
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 403 ()"
+  ]
+}
