@@ -1,0 +1,203 @@
+{
+  "stamp": "P16E2EMWL08694",
+  "curatedRequestId": "curated:1b44fc5e04b8acee",
+  "customTaskId": "custom-b20184f1550b",
+  "corpusBefore": 6,
+  "corpusAfter": 6,
+  "passed": 37,
+  "total": 37,
+  "soft": 0,
+  "results": [
+    {
+      "name": "① 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "①b 自动弹出的密钥弹窗已关闭",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "②a 口令弹窗已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "② 管理口令解锁成功",
+      "pass": true,
+      "detail": "✓ 已解锁 OWNER 视角 · 账户 acct_230bad0cd00541e1"
+    },
+    {
+      "name": "②d 业主分段导航已出现",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "③a 黄金语料工坊卡片已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "③b 拿到业主会话 token",
+      "pass": true,
+      "detail": "已拿到"
+    },
+    {
+      "name": "④a 策展表单已展开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④b 策展件已录入（curated: request_id）",
+      "pass": true,
+      "detail": "✓ 已录入黄金记忆 curated:1b44fc5e04b8acee（立刻可被召回注入）"
+    },
+    {
+      "name": "④c 拿到策展件 request_id",
+      "pass": true,
+      "detail": "curated:1b44fc5e04b8acee"
+    },
+    {
+      "name": "⑤a 自定义考题表单已展开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤b 自定义考题已入库（custom- task_id）",
+      "pass": true,
+      "detail": "✓ 已新增自定义考题 custom-b20184f1550b（自动纳入跑批范围）"
+    },
+    {
+      "name": "⑤c 拿到自定义考题 task_id",
+      "pass": true,
+      "detail": "custom-b20184f1550b"
+    },
+    {
+      "name": "⑥b 策展件已进黄金池（is_golden=1）",
+      "pass": true,
+      "detail": "HTTP 200 golden=6 hit=true id=129"
+    },
+    {
+      "name": "⑥c A/B 评测面板已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑥d A/B 对比看板已出现",
+      "pass": true,
+      "detail": "已出现"
+    },
+    {
+      "name": "⑥e 看板显示 Baseline 通过率",
+      "pass": true,
+      "detail": "0.0%"
+    },
+    {
+      "name": "⑥f 看板显示 Evolved 通过率",
+      "pass": true,
+      "detail": "33.3%"
+    },
+    {
+      "name": "⑥g 看板显示提升百分比",
+      "pass": true,
+      "detail": "+33.3%"
+    },
+    {
+      "name": "⑥h Evolved 通过率 > Baseline（黄金记忆真的救活了题目）",
+      "pass": true,
+      "detail": "baseline=0.0% evolved=33.3% delta=+33.3%"
+    },
+    {
+      "name": "⑥i 提升百分比为正",
+      "pass": true,
+      "detail": "+33.3%"
+    },
+    {
+      "name": "⑥j A/B 评测未写库（语料池条数不变）",
+      "pass": true,
+      "detail": "before=6 after=6"
+    },
+    {
+      "name": "⑦a 过期乐观锁 ⇒ 409 version_conflict",
+      "pass": true,
+      "detail": "HTTP 409 {\"detail\":{\"code\":\"version_conflict\",\"current_updated_at\":1794938828.5007067}}"
+    },
+    {
+      "name": "⑦b 冲突后正文未被改写",
+      "pass": true,
+      "detail": "P16E2EMWL08694：算力节点收益提现按 revenue_ledger 的节点分成结算，业主审批后通过链上 PA"
+    },
+    {
+      "name": "⑧a 编辑横幅已出现（携带乐观锁基准）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑧b 旁路改动成功（updated_at 前进）",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "⑧d UI 提示「已被他人修改（并发冲突）」",
+      "pass": true,
+      "detail": "⚠️ 这条黄金记忆已被他人修改（并发冲突），请刷新后重新编辑"
+    },
+    {
+      "name": "⑧d-2 冲突后卡片主体未被错误文案顶掉（可继续编辑）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑧h 用最新 updated_at 保存 ⇒ 成功放行",
+      "pass": true,
+      "detail": "✓ 已更新黄金记忆 curated:1b44fc5e04b8acee（乐观锁校验通过）"
+    },
+    {
+      "name": "⑨a 自定义考题带 updated_at（乐观锁基准）",
+      "pass": true,
+      "detail": "updated_at=1794938830.1538901"
+    },
+    {
+      "name": "⑨b 过期乐观锁改考题 ⇒ 409 version_conflict",
+      "pass": true,
+      "detail": "HTTP 409 {\"detail\":{\"code\":\"version_conflict\",\"current_updated_at\":1794938830.1538901}}"
+    },
+    {
+      "name": "⑨c 冲突后题面未被改写",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑨d 正确 updated_at ⇒ 改考题放行（修掉 UPDATE 绑定 bug）",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "console 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-d2846363808a24eee59b02dc1d638ecc.js → content-encoding=gzip content-length=440421"
+    },
+    {
+      "name": "console 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "430.1KB"
+    },
+    {
+      "name": "pocket 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-d2846363808a24eee59b02dc1d638ecc.js → content-encoding=gzip content-length=440421"
+    },
+    {
+      "name": "pocket 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "430.1KB"
+    }
+  ],
+  "pageErrors": [
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 409 ()"
+  ]
+}
