@@ -1,0 +1,217 @@
+{
+  "results": [
+    {
+      "name": "① 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "② 签发新 Key ⇒ 拿到明文",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "②d 余额补足（可覆盖默认模型预扣）",
+      "pass": true,
+      "detail": "balance=3"
+    },
+    {
+      "name": "④a 口令弹窗已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④ 管理口令解锁成功",
+      "pass": true,
+      "detail": "✓ 已解锁 OWNER 视角 · 账户 acct_230bad0cd00541e1"
+    },
+    {
+      "name": "④d 业主分段导航已出现",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "②a 黄金语料工坊卡片已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "②b 策展表单已展开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "②c 策展件已录入（返回 curated: request_id）",
+      "pass": true,
+      "detail": "✓ 已录入黄金记忆 curated:d42fa4803edf265b（立刻可被召回注入）"
+    },
+    {
+      "name": "②d 拿到策展件 request_id",
+      "pass": true,
+      "detail": "curated:d42fa4803edf265b"
+    },
+    {
+      "name": "②e 策展件已进黄金池（is_golden=1，可被召回）",
+      "pass": true,
+      "detail": "HTTP 200 golden=22 hit=true"
+    },
+    {
+      "name": "②e 自定义考题表单已展开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "②f 自定义考题已入库（返回 custom- task_id）",
+      "pass": true,
+      "detail": "✓ 已新增自定义考题 custom-c1bf5005d679（自动纳入跑批范围）"
+    },
+    {
+      "name": "②g 拿到自定义考题 task_id",
+      "pass": true,
+      "detail": "custom-c1bf5005d679"
+    },
+    {
+      "name": "②h 自定义考题已出现在题库列表（实时刷新）",
+      "pass": true,
+      "detail": "已出现"
+    },
+    {
+      "name": "②i 跑批结果面板已出现",
+      "pass": true,
+      "detail": "已出现"
+    },
+    {
+      "name": "②j 跑批产出偏好对 ≥ 1",
+      "pass": true,
+      "detail": "pairs=9"
+    },
+    {
+      "name": "②k 自定义考题被跑批纳入并产出 chosen/rejected",
+      "pass": true,
+      "detail": "HTTP 200 pairs=1 mine=true"
+    },
+    {
+      "name": "②m 自定义考题在题库中且标记 custom",
+      "pass": true,
+      "detail": "HTTP 200 tasks=9 mine=true"
+    },
+    {
+      "name": "②n 删除端点保护真实买家评价（400 拒删）",
+      "pass": true,
+      "detail": "HTTP 400 {\"detail\":\"protected_sample\"}"
+    },
+    {
+      "name": "③a 公开 golden-modelfile 返回标准 Modelfile（无需鉴权）",
+      "pass": true,
+      "detail": "HTTP 200 bytes=3239 golden_count=31"
+    },
+    {
+      "name": "③b Modelfile 里含黄金样本内容",
+      "pass": true,
+      "detail": "golden_count=31"
+    },
+    {
+      "name": "③c 公开 golden-summary 只回统计（无账号/钱包泄露）",
+      "pass": true,
+      "detail": "HTTP 200 golden_count=31"
+    },
+    {
+      "name": "④a 买家视角 Playground 已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④c 提问后回答已渲染",
+      "pass": true,
+      "detail": "已渲染"
+    },
+    {
+      "name": "④d 回答上出现「✨ 已注入 N 条黄金记忆」徽标",
+      "pass": true,
+      "detail": "✨ 已注入 2 条黄金记忆"
+    },
+    {
+      "name": "④e golden_boost=false ⇒ 注入条数为 0",
+      "pass": true,
+      "detail": "header=0"
+    },
+    {
+      "name": "④f golden_boost=true ⇒ 注入条数 ≥ 1",
+      "pass": true,
+      "detail": "header=2"
+    },
+    {
+      "name": "④g 注入的 Few-Shot token **不向买家额外收费**",
+      "pass": true,
+      "detail": "cost 0→0"
+    },
+    {
+      "name": "①a 签发全新买家账户（$0 余额）",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "①b 领取 $0.50 新手体验金",
+      "pass": true,
+      "detail": "HTTP 200 balance=$0.5"
+    },
+    {
+      "name": "①c $0.50 账户请求高价档模型：不再 402（自适应裁剪 max_tokens）",
+      "pass": true,
+      "detail": "HTTP 200 code=(none) capped=2124"
+    },
+    {
+      "name": "①d 响应头 X-APIPaw-MaxTokens-Capped 给出裁剪后的有效上限",
+      "pass": true,
+      "detail": "capped=2124（原 4096）"
+    },
+    {
+      "name": "①e 结算后余额不为负（不透支）",
+      "pass": true,
+      "detail": "balance_after=$0.5"
+    },
+    {
+      "name": "console 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-b29c254b63e066c3b23140b1a7657e8b.js → content-encoding=gzip content-length=438075"
+    },
+    {
+      "name": "console 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "427.8KB"
+    },
+    {
+      "name": "pocket 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-b29c254b63e066c3b23140b1a7657e8b.js → content-encoding=gzip content-length=438075"
+    },
+    {
+      "name": "pocket 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "427.8KB"
+    },
+    {
+      "name": "⑤a 策展件可删除（清理路径可用）",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "⑤b 自定义考题可删除（清理路径可用）",
+      "pass": true,
+      "detail": "HTTP 200"
+    }
+  ],
+  "passed": 40,
+  "total": 40,
+  "soft": 0,
+  "stamp": "P15E2EMWKADEMA",
+  "curatedRequestId": "curated:d42fa4803edf265b",
+  "customTaskId": "custom-c1bf5005d679",
+  "issuedKeyMasked": "paw-sk-****",
+  "pageErrors": [
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 401 ()",
+    "console.error: Failed to load resource: the server responded with a status of 401 ()"
+  ]
+}
