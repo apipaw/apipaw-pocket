@@ -18,13 +18,21 @@ import {
   RlaifRunResult,
   RlaifStats,
   RlaifTask,
+  deleteCuratedSample,
+  deleteRlaifTask,
   describeCloudError,
   exportDataset,
   fetchDatasetSummary,
   fetchRlaifTasks,
   runRlaif,
+  setCuratedGoldenFlag,
+  upsertCuratedGolden,
+  upsertRlaifTask,
 } from '../api/cloudClient';
 import { colors, fontSize, radius, spacing } from '../theme';
+
+/** 阶段十五 P1：只有这三类样本**允许删除**（真实买家评价服务端会拒删）。 */
+const DELETABLE_PREFIXES = ['curated:', 'rlaif:', 'verify-'];
 
 /**
  * 黄金 SFT/DPO **微调语料工坊**（阶段十二 P2 · OWNER 专属）。
@@ -66,6 +74,21 @@ const GoldenDatasetCard: React.FC = () => {
   const [rlaifRunning, setRlaifRunning] = useState(false);
   const [rlaifResult, setRlaifResult] = useState<RlaifRunResult | null>(null);
   const [rlaifError, setRlaifError] = useState<string | null>(null);
+
+  // 阶段十五 P1 · 黄金记忆**手工策展**（可折叠表单）
+  const [curateOpen, setCurateOpen] = useState(false);
+  const [curatePrompt, setCuratePrompt] = useState('');
+  const [curateCompletion, setCurateCompletion] = useState('');
+  const [curateModel, setCurateModel] = useState('');
+  const [curateSaving, setCurateSaving] = useState(false);
+  // 阶段十五 P1 · 自定义验算考题（可折叠表单）
+  const [taskFormOpen, setTaskFormOpen] = useState(false);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskPrompt, setTaskPrompt] = useState('');
+  const [taskMust, setTaskMust] = useState('');
+  const [taskMustNot, setTaskMustNot] = useState('');
+  const [taskMinLength, setTaskMinLength] = useState('4');
+  const [taskSaving, setTaskSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -206,6 +229,123 @@ const GoldenDatasetCard: React.FC = () => {
       void handlePreviewCopy();
     }
   }, [download, handlePreviewCopy, preview]);
+
+  /**
+   * 阶段十五 P1 · **手工录入**一条黄金记忆。
+   *
+   * 录完立刻进黄金召回池 ⇒ 下一次 Playground 提问就能命中它（Few-Shot 注入）。
+   * 服务端落库前会自动脱敏（明文 Key 打码），并打上 `curated:` 前缀
+   * ⇒ 运维可按前缀精准清理，绝不误伤真实买家评价。
+   */
+  const handleCurateSave = useCallback(async () => {
+    if (!curatePrompt.trim() || !curateCompletion.trim()) {
+      setError('请同时填写「问题」与「标准答案」');
+      return;
+    }
+    setCurateSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await upsertCuratedGolden({
+        promptText: curatePrompt.trim(),
+        completionText: curateCompletion.trim(),
+        modelId: curateModel.trim() || undefined,
+        isGolden: true,
+      });
+      setNotice(`✓ 已录入黄金记忆 ${res.request_id}（立刻可被召回注入）`);
+      setCuratePrompt('');
+      setCurateCompletion('');
+      void load();
+    } catch (e: unknown) {
+      setError(describeCloudError(e, 'session'));
+    } finally {
+      setCurateSaving(false);
+    }
+  }, [curateCompletion, curateModel, curatePrompt, load]);
+
+  /** 阶段十五 P1 · 设为黄金 / 取消黄金（编辑权，不改写正文）。 */
+  const handleToggleGolden = useCallback(
+    async (requestId: string, next: boolean) => {
+      setError(null);
+      try {
+        await setCuratedGoldenFlag(requestId, next);
+        setNotice(next ? `✓ ${requestId} 已设为黄金样本` : `✓ ${requestId} 已取消黄金标记`);
+        void load();
+      } catch (e: unknown) {
+        setError(describeCloudError(e, 'session'));
+      }
+    },
+    [load],
+  );
+
+  /** 阶段十五 P1 · 删除策展件 / 自动验算产物（真实买家评价服务端会拒删）。 */
+  const handleDeleteSample = useCallback(
+    async (requestId: string) => {
+      setError(null);
+      try {
+        await deleteCuratedSample(requestId);
+        setNotice(`✓ 已删除 ${requestId}`);
+        void load();
+      } catch (e: unknown) {
+        setError(describeCloudError(e, 'session'));
+      }
+    },
+    [load],
+  );
+
+  /** 阶段十五 P1 · 新增一道自定义验算考题（保存后自动纳入跑批范围）。 */
+  const handleTaskSave = useCallback(async () => {
+    if (!taskPrompt.trim()) {
+      setError('请填写「考题」');
+      return;
+    }
+    const must = taskMust
+      .split(/[,，\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const mustNot = taskMustNot
+      .split(/[,，\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setTaskSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await upsertRlaifTask({
+        title: taskTitle.trim() || taskPrompt.trim().slice(0, 24),
+        prompt: taskPrompt.trim(),
+        mustContain: must,
+        mustNotContain: mustNot,
+        minLength: Math.max(1, parseInt(taskMinLength || '4', 10) || 4),
+      });
+      setNotice(`✓ 已新增自定义考题 ${res.task_id}（自动纳入跑批范围）`);
+      setTaskTitle('');
+      setTaskPrompt('');
+      setTaskMust('');
+      setTaskMustNot('');
+      // 题库立刻刷新 —— 新题马上能在下面的列表里看到
+      void loadRlaif();
+    } catch (e: unknown) {
+      setError(describeCloudError(e, 'session'));
+    } finally {
+      setTaskSaving(false);
+    }
+  }, [loadRlaif, taskMinLength, taskMust, taskMustNot, taskPrompt, taskTitle]);
+
+  /** 阶段十五 P1 · 删除自定义考题（内置题库不可删）。 */
+  const handleDeleteTask = useCallback(
+    async (taskId: string) => {
+      setError(null);
+      try {
+        await deleteRlaifTask(taskId);
+        setNotice(`✓ 已删除自定义考题 ${taskId}`);
+        void loadRlaif();
+      } catch (e: unknown) {
+        setError(describeCloudError(e, 'session'));
+      }
+    },
+    [loadRlaif],
+  );
 
   const stats = summary;
   const models = stats?.models ?? [];
@@ -373,6 +513,31 @@ const GoldenDatasetCard: React.FC = () => {
                 <Text style={styles.rowAnswer} numberOfLines={3}>
                   答：{row.completion_text || '(无原文)'}
                 </Text>
+                {/* 阶段十五 P1 · 逐条策展操作 */}
+                <View style={styles.rowActions}>
+                  <TouchableOpacity
+                    style={styles.rowActionBtn}
+                    onPress={() => void handleToggleGolden(row.request_id, !row.is_golden)}
+                    activeOpacity={0.8}
+                    testID={`golden-dataset-row-golden-${row.id}`}
+                  >
+                    <Text style={styles.rowActionText}>
+                      {row.is_golden ? '★ 取消黄金' : '☆ 设为黄金'}
+                    </Text>
+                  </TouchableOpacity>
+                  {DELETABLE_PREFIXES.some((p) => (row.request_id || '').startsWith(p)) ? (
+                    <TouchableOpacity
+                      style={[styles.rowActionBtn, styles.rowActionDanger]}
+                      onPress={() => void handleDeleteSample(row.request_id)}
+                      activeOpacity={0.8}
+                      testID={`golden-dataset-row-delete-${row.id}`}
+                    >
+                      <Text style={[styles.rowActionText, styles.rowActionDangerText]}>
+                        🗑 删除
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
             ))
           )}
@@ -448,6 +613,183 @@ const GoldenDatasetCard: React.FC = () => {
               </View>
             ) : null}
           </View>
+
+      {/* 阶段十五 P1 · 黄金记忆**手工策展**（可折叠表单） */}
+      <View style={styles.curateBox} testID="golden-dataset-curate-panel">
+        <TouchableOpacity
+          style={styles.curateToggle}
+          onPress={() => setCurateOpen((v) => !v)}
+          activeOpacity={0.8}
+          testID="golden-dataset-curate-toggle"
+        >
+          <Text style={styles.curateToggleText}>
+            {curateOpen ? '▼ 收起手工录入' : '➕ 手工录入黄金记忆'}
+          </Text>
+        </TouchableOpacity>
+        {curateOpen ? (
+          <View style={styles.curateForm} testID="golden-dataset-curate-form">
+            <Text style={styles.curateHint}>
+              录完立刻进黄金召回池 ⇒ 下一次 Playground 提问就会命中它（Few-Shot 注入）。
+            </Text>
+            <TextInput
+              style={styles.curateInput}
+              value={curatePrompt}
+              onChangeText={setCuratePrompt}
+              placeholder="问题（例：APIPaw 的场景 B 版税率是多少？）"
+              placeholderTextColor={colors.textMuted}
+              multiline
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="golden-dataset-curate-prompt"
+            />
+            <TextInput
+              style={styles.curateInput}
+              value={curateCompletion}
+              onChangeText={setCurateCompletion}
+              placeholder="标准答案（会作为 Few-Shot 范例注入）"
+              placeholderTextColor={colors.textMuted}
+              multiline
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="golden-dataset-curate-completion"
+            />
+            <TextInput
+              style={styles.curateInput}
+              value={curateModel}
+              onChangeText={setCurateModel}
+              placeholder="模型标识（可选，例：qwen2.5:0.5b）"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="golden-dataset-curate-model"
+            />
+            <View style={styles.actions}>
+              <TouchableOpacity
+                style={[styles.exportBtn, curateSaving && styles.btnDisabled]}
+                onPress={() => void handleCurateSave()}
+                disabled={curateSaving}
+                activeOpacity={0.8}
+                testID="golden-dataset-curate-save"
+              >
+                <Text style={styles.exportBtnText}>
+                  {curateSaving ? '录入中…' : '✓ 保存为黄金记忆'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+      </View>
+
+      {/* 阶段十五 P1 · 自定义 RLAIF 验算考题（可折叠表单） */}
+      <View style={styles.curateBox} testID="golden-dataset-task-panel">
+        <TouchableOpacity
+          style={styles.curateToggle}
+          onPress={() => setTaskFormOpen((v) => !v)}
+          activeOpacity={0.8}
+          testID="golden-dataset-rlaif-task-toggle"
+        >
+          <Text style={styles.curateToggleText}>
+            {taskFormOpen ? '▼ 收起自定义考题' : '➕ 添加自定义验算题'}
+          </Text>
+        </TouchableOpacity>
+        {taskFormOpen ? (
+          <View style={styles.curateForm} testID="golden-dataset-rlaif-task-form">
+            <Text style={styles.curateHint}>
+              必含 / 违禁用逗号分隔；`re:` 开头走正则。保存后自动纳入 RLAIF 跑批范围。
+            </Text>
+            <TextInput
+              style={styles.curateInput}
+              value={taskTitle}
+              onChangeText={setTaskTitle}
+              placeholder="题目标题（可选）"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="golden-dataset-rlaif-task-title"
+            />
+            <TextInput
+              style={styles.curateInput}
+              value={taskPrompt}
+              onChangeText={setTaskPrompt}
+              placeholder="考题（例：APIPaw 的场景 B 版税率是多少？）"
+              placeholderTextColor={colors.textMuted}
+              multiline
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="golden-dataset-rlaif-task-prompt"
+            />
+            <TextInput
+              style={styles.curateInput}
+              value={taskMust}
+              onChangeText={setTaskMust}
+              placeholder="必含关键词（逗号分隔，例：0.15）"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="golden-dataset-rlaif-task-must"
+            />
+            <TextInput
+              style={styles.curateInput}
+              value={taskMustNot}
+              onChangeText={setTaskMustNot}
+              placeholder="违禁词（逗号分隔，例：不知道）"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="golden-dataset-rlaif-task-mustnot"
+            />
+            <TextInput
+              style={styles.curateInput}
+              value={taskMinLength}
+              onChangeText={setTaskMinLength}
+              placeholder="最小长度（默认 4）"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="number-pad"
+              testID="golden-dataset-rlaif-task-minlength"
+            />
+            <View style={styles.actions}>
+              <TouchableOpacity
+                style={[styles.exportBtn, taskSaving && styles.btnDisabled]}
+                onPress={() => void handleTaskSave()}
+                disabled={taskSaving}
+                activeOpacity={0.8}
+                testID="golden-dataset-rlaif-task-save"
+              >
+                <Text style={styles.exportBtnText}>
+                  {taskSaving ? '保存中…' : '✓ 添加自定义考题'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+        {/* 自定义考题清单（内置题库不可删） */}
+        {rlaifTasks.filter((t) => t.custom).length > 0 ? (
+          <View style={styles.taskList} testID="golden-dataset-rlaif-custom-list">
+            {rlaifTasks
+              .filter((t) => t.custom)
+              .map((t) => (
+                <View key={t.id} style={styles.taskRow} testID={`golden-dataset-rlaif-custom-${t.id}`}>
+                  <Text style={styles.taskRowTitle}>
+                    ✎ {t.title} · {t.id}
+                  </Text>
+                  <Text style={styles.taskRowPrompt} numberOfLines={2}>
+                    {t.prompt}
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.rowActionBtn, styles.rowActionDanger]}
+                    onPress={() => void handleDeleteTask(t.id)}
+                    activeOpacity={0.8}
+                    testID={`golden-dataset-rlaif-task-delete-${t.id}`}
+                  >
+                    <Text style={[styles.rowActionText, styles.rowActionDangerText]}>
+                      🗑 删除考题
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+          </View>
+        ) : null}
+      </View>
 
       {/* 阶段十三 P1 · 生成物预览弹窗 */}
       <Modal
@@ -672,6 +1014,54 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     marginTop: 4,
   },
+  rowActions: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs },
+  rowActionBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+  },
+  rowActionText: { color: colors.cyan, fontSize: fontSize.xs, fontWeight: '700' },
+  rowActionDanger: { borderColor: colors.danger },
+  rowActionDangerText: { color: colors.danger },
+
+  // 阶段十五 P1 · 策展 / 自定义考题区
+  curateBox: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.cardAlt,
+  },
+  curateToggle: { paddingVertical: 2 },
+  curateToggleText: { color: colors.purple, fontSize: fontSize.sm, fontWeight: '800' },
+  curateForm: { marginTop: spacing.xs },
+  curateHint: { color: colors.textMuted, fontSize: fontSize.xs, marginBottom: spacing.xs, lineHeight: 16 },
+  curateInput: {
+    marginTop: spacing.xs,
+    backgroundColor: colors.card,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.textPrimary,
+    fontSize: fontSize.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    minHeight: 30,
+  },
+  taskList: { marginTop: spacing.xs },
+  taskRow: {
+    marginTop: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  taskRowTitle: { color: colors.textPrimary, fontSize: fontSize.xs, fontWeight: '700' },
+  taskRowPrompt: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
   rowHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   rowTitle: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '800' },
   rowBadge: { color: colors.accent, fontSize: fontSize.xs, fontWeight: '700' },

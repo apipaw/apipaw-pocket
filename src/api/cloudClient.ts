@@ -2038,6 +2038,8 @@ export interface RlaifTask {
   must_contain: string[];
   must_not_contain: string[];
   min_length: number;
+  /** 阶段十五 P1：true = 业主自定义考题（可删）；false = 内置题库 */
+  custom?: boolean;
 }
 
 /** 历史跑批统计 */
@@ -2102,5 +2104,93 @@ export const runRlaif = async (options?: {
     max_tasks: options?.maxTasks ?? 0,
     dry_run: options?.dryRun ?? false,
   });
+  return res.data;
+};
+
+// ----------------- 阶段十五 P1 · 黄金记忆策展 + 自定义验算考题 -----------------
+
+/** 手工录入 / 编辑一条黄金记忆（OWNER）。
+ *
+ * - `requestId` 留空 ⇒ 服务端自动生成 `curated:<hex>`；
+ * - 传已存在的 `curated:*` ⇒ **就地更新**（不新增行）；
+ * - `isGolden = 0` ⇒ 只取消黄金标记，样本本体仍留在池里。
+ */
+export const upsertCuratedGolden = async (payload: {
+  requestId?: string;
+  promptText: string;
+  completionText: string;
+  modelId?: string;
+  isGolden?: boolean;
+}): Promise<{
+  status: string;
+  request_id: string;
+  is_golden: number;
+  created: boolean;
+}> => {
+  const res = await cloudApi.post('/api/v1/owner/datasets/golden-upsert', {
+    request_id: payload.requestId ?? '',
+    prompt_text: payload.promptText,
+    completion_text: payload.completionText,
+    model_id: payload.modelId ?? '',
+    is_golden: payload.isGolden === false ? 0 : 1,
+  });
+  return res.data;
+};
+
+/** 给**任意**样本打/撤黄金标记（OWNER · 编辑权，不改写正文）。 */
+export const setCuratedGoldenFlag = async (
+  requestId: string,
+  isGolden: boolean,
+): Promise<{ status: string; request_id: string; is_golden: number }> => {
+  const res = await cloudApi.post('/api/v1/owner/datasets/golden-flag', {
+    request_id: requestId,
+    is_golden: isGolden ? 1 : 0,
+  });
+  return res.data;
+};
+
+/** 删除一条策展件 / 自动验算产物（OWNER）。
+ *
+ * ⚠️ 真实买家评价（`chatcmpl-*`）**删不掉** —— 服务端会回 400
+ * `protected_sample`，保证原始真机黄金基线不被误伤。
+ */
+export const deleteCuratedSample = async (
+  requestId: string,
+): Promise<{ status: string; request_id: string }> => {
+  const res = await cloudApi.delete(
+    `/api/v1/owner/datasets/golden/${encodeURIComponent(requestId)}`,
+  );
+  return res.data;
+};
+
+/** 新增 / 更新一道自定义 RLAIF 验算考题（OWNER）。 */
+export const upsertRlaifTask = async (payload: {
+  taskId?: string;
+  title?: string;
+  category?: string;
+  prompt: string;
+  mustContain?: string[];
+  mustNotContain?: string[];
+  minLength?: number;
+}): Promise<{ status: string; task_id: string; created: boolean }> => {
+  const res = await cloudApi.post('/api/v1/owner/rlaif/tasks', {
+    task_id: payload.taskId ?? '',
+    title: payload.title ?? '',
+    category: payload.category ?? 'custom',
+    prompt: payload.prompt,
+    must_contain: payload.mustContain ?? [],
+    must_not_contain: payload.mustNotContain ?? [],
+    min_length: payload.minLength ?? 1,
+  });
+  return res.data;
+};
+
+/** 删除一道自定义 RLAIF 验算考题（OWNER）。 */
+export const deleteRlaifTask = async (
+  taskId: string,
+): Promise<{ status: string; task_id: string }> => {
+  const res = await cloudApi.delete(
+    `/api/v1/owner/rlaif/tasks/${encodeURIComponent(taskId)}`,
+  );
   return res.data;
 };
