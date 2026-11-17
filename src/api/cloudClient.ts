@@ -137,12 +137,35 @@ cloudApi.interceptors.response.use(
 );
 
 /**
+ * 阶段十六 P0 · 乐观锁冲突（409 version_conflict）识别。
+ *
+ * 服务端在"你看到的 updated_at 已经不是最新"时回 409，detail 是
+ * `{code, current_updated_at}` 对象 ⇒ 前端要**单独识别**才能给出可操作提示，
+ * 也避免把对象直接渲染进 `<Text>`（React 会抛 "Objects are not valid as a child"）。
+ */
+export const isVersionConflict = (e: unknown): boolean => {
+  const err = e as {
+    response?: {
+      status?: number;
+      data?: { detail?: string | { code?: string; current_updated_at?: number } };
+    };
+  };
+  if (err?.response?.status !== 409) return false;
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string') return detail === 'version_conflict';
+  return !!detail && typeof detail === 'object' && detail.code === 'version_conflict';
+};
+
+/**
  * 把 axios 异常翻译成看板可直接展示的中文提示。
  * 401 是上云后最常见的失败原因（密钥缺失/失效），必须给出可操作指引。
  */
 export const describeCloudError = (e: unknown, mode: 'key' | 'session' = 'key'): string => {
   const err = e as {
-    response?: { status?: number; data?: { detail?: string } };
+    response?: {
+      status?: number;
+      data?: { detail?: string | { code?: string; current_updated_at?: number } };
+    };
     message?: string;
     code?: string;
   };
@@ -155,6 +178,8 @@ export const describeCloudError = (e: unknown, mode: 'key' | 'session' = 'key'):
   if (status === 403) return '当前账号未绑定创作者钱包，无法访问创作者接口';
   if (status === 404) return '云端网关接口不存在，请确认后端版本';
   if (status === 429) return '请求过于频繁，请稍后再试';
+  // 阶段十六 P0 · 乐观锁冲突（并发编辑）⇒ 明确提示"刷新后再改"
+  if (status === 409) return '内容已被他人修改（并发冲突），请刷新后重新编辑';
   // 阶段六 P1 · 严格模式容量错误（503 no_capacity / 504 dispatch_timeout）：
   // 这两种**不计费**，提示口径必须是「未产生服务、未产生费用」，别让用户以为白花了钱。
   const cap = capacityErrorOf(e);
@@ -166,7 +191,13 @@ export const describeCloudError = (e: unknown, mode: 'key' | 'session' = 'key'):
   if (status && status >= 500) return `云端网关异常 (HTTP ${status})，请稍后重试`;
   if (err?.code === 'ECONNABORTED') return '请求超时，云端聚合耗时较长，请稍后重试';
   if (!status && err?.code === 'ERR_NETWORK') return '网络不可达，请检查到 cloud.apipaw.com 的连接';
-  return err?.response?.data?.detail || err?.message || '网络请求失败';
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  // ⚠️ detail 可能是对象（如 409 的 {code, current_updated_at}）⇒ 不可直接渲染
+  if (detail && typeof detail === 'object') {
+    return (detail as { code?: string }).code || '请求失败（服务端返回了结构化错误）';
+  }
+  return err?.message || '网络请求失败';
 };
 
 // ----------------- 类型定义 -----------------
@@ -1991,6 +2022,8 @@ export interface DatasetSummary {
     ttft_ms: number;
     throughput_tps: number;
     created_at: number;
+    /** 阶段十六 P0：乐观锁基准值（编辑时回传，冲突 ⇒ 409） */
+    updated_at: number;
   }>;
 }
 
@@ -2035,11 +2068,19 @@ export interface RlaifTask {
   title: string;
   category: string;
   prompt: string;
-  must_contain: string[];
-  must_not_contain: string[];
-  min_length: number;
+  must_contain?: string[];
+  must_not_contain?: string[];
+  min_length?: number;
   /** 阶段十五 P1：true = 业主自定义考题（可删）；false = 内置题库 */
   custom?: boolean;
+  /** 阶段十六 P0：乐观锁基准值（编辑已有考题时回传，冲突 ⇒ 409） */
+  updated_at?: number;
+  /** 服务端把判分规则嵌在 rules 里（顶层字段为兼容旧结构保留） */
+  rules?: {
+    must_contain: string[];
+    must_not_contain: string[];
+    min_length: number;
+  };
 }
 
 /** 历史跑批统计 */
@@ -2121,11 +2162,14 @@ export const upsertCuratedGolden = async (payload: {
   completionText: string;
   modelId?: string;
   isGolden?: boolean;
+  /** 阶段十六 P0：乐观锁 —— 编辑已有样本时带上"我看到的" updated_at */
+  expectedUpdatedAt?: number;
 }): Promise<{
   status: string;
   request_id: string;
   is_golden: number;
   created: boolean;
+  updated_at?: number;
 }> => {
   const res = await cloudApi.post('/api/v1/owner/datasets/golden-upsert', {
     request_id: payload.requestId ?? '',
@@ -2133,18 +2177,29 @@ export const upsertCuratedGolden = async (payload: {
     completion_text: payload.completionText,
     model_id: payload.modelId ?? '',
     is_golden: payload.isGolden === false ? 0 : 1,
+    ...(payload.expectedUpdatedAt !== undefined
+      ? { expected_updated_at: payload.expectedUpdatedAt }
+      : {}),
   });
   return res.data;
 };
 
-/** 给**任意**样本打/撤黄金标记（OWNER · 编辑权，不改写正文）。 */
+/** 给**任意**样本打/撤黄金标记（OWNER · 编辑权，不改写正文）。
+ *
+ * ⚠️ 阶段十六 P0：带 `expectedUpdatedAt` 时，若库内 `updated_at` 已被别人改动
+ * ⇒ 服务端回 **409 version_conflict**（不静默覆盖）。
+ */
 export const setCuratedGoldenFlag = async (
   requestId: string,
   isGolden: boolean,
-): Promise<{ status: string; request_id: string; is_golden: number }> => {
+  expectedUpdatedAt?: number,
+): Promise<{ status: string; request_id: string; is_golden: number; updated_at?: number }> => {
   const res = await cloudApi.post('/api/v1/owner/datasets/golden-flag', {
     request_id: requestId,
     is_golden: isGolden ? 1 : 0,
+    ...(expectedUpdatedAt !== undefined
+      ? { expected_updated_at: expectedUpdatedAt }
+      : {}),
   });
   return res.data;
 };
@@ -2163,7 +2218,11 @@ export const deleteCuratedSample = async (
   return res.data;
 };
 
-/** 新增 / 更新一道自定义 RLAIF 验算考题（OWNER）。 */
+/** 新增 / 更新一道自定义 RLAIF 验算考题（OWNER）。
+ *
+ * ⚠️ 阶段十六 P0：编辑已有考题时带 `expectedUpdatedAt` ⇒ 与库内 `updated_at`
+ * 不一致时服务端回 **409 version_conflict**（防止"后写覆盖先写"）。
+ */
 export const upsertRlaifTask = async (payload: {
   taskId?: string;
   title?: string;
@@ -2172,7 +2231,8 @@ export const upsertRlaifTask = async (payload: {
   mustContain?: string[];
   mustNotContain?: string[];
   minLength?: number;
-}): Promise<{ status: string; task_id: string; created: boolean }> => {
+  expectedUpdatedAt?: number;
+}): Promise<{ status: string; task_id: string; created: boolean; updated_at?: number }> => {
   const res = await cloudApi.post('/api/v1/owner/rlaif/tasks', {
     task_id: payload.taskId ?? '',
     title: payload.title ?? '',
@@ -2181,6 +2241,9 @@ export const upsertRlaifTask = async (payload: {
     must_contain: payload.mustContain ?? [],
     must_not_contain: payload.mustNotContain ?? [],
     min_length: payload.minLength ?? 1,
+    ...(payload.expectedUpdatedAt !== undefined
+      ? { expected_updated_at: payload.expectedUpdatedAt }
+      : {}),
   });
   return res.data;
 };
@@ -2192,5 +2255,65 @@ export const deleteRlaifTask = async (
   const res = await cloudApi.delete(
     `/api/v1/owner/rlaif/tasks/${encodeURIComponent(taskId)}`,
   );
+  return res.data;
+};
+
+// ----------------- 阶段十六 P2 · 进化前后 A/B 智商对比评测 -----------------
+
+/** 单题对比明细 */
+export interface RlaifBenchmarkDetail {
+  task_id: string;
+  title: string;
+  category: string;
+  custom: boolean;
+  baseline_passed: boolean;
+  evolved_passed: boolean;
+  improved: boolean;
+  /** 召回到的黄金条数（含兜底件） */
+  golden_count: number;
+  /** 真正相关（matched=1）的黄金条数 —— 进化答案只来自这些 */
+  golden_relevant: number;
+  golden_request_ids: string[];
+  golden_scores: number[];
+  baseline_preview: string;
+  evolved_preview: string;
+}
+
+/** A/B 评测结果 */
+export interface RlaifBenchmarkResult {
+  status: string;
+  dry_run: boolean;
+  total_tasks: number;
+  baseline_passed: number;
+  baseline_pass_rate: number;
+  evolved_passed: number;
+  evolved_pass_rate: number;
+  /** 提升（**百分点**，如 12.5 = +12.5%） */
+  improvement_delta: number;
+  /** 相对提升（基线为 0 时无意义 ⇒ 0） */
+  improvement_ratio: number;
+  improved_tasks: number;
+  details: RlaifBenchmarkDetail[];
+}
+
+/**
+ * 一键运行「进化前后 A/B 智商对比评测」（OWNER）。
+ *
+ * - **Baseline** = 关闭黄金记忆注入（`golden_boost=false`）时的通过率；
+ * - **Evolved** = 开启黄金记忆注入 + 黄金检索召回后的通过率。
+ *
+ * ⚠️ 本接口**恒不写库**（只读黄金样本 + 内存判分）⇒ 跑多少次都不污染正式
+ * 语料池；`dryRun` 只是把这条契约显式化。
+ */
+export const runRlaifBenchmark = async (options?: {
+  taskIds?: string[];
+  maxTasks?: number;
+  dryRun?: boolean;
+}): Promise<RlaifBenchmarkResult> => {
+  const res = await cloudApi.post('/api/v1/owner/rlaif/benchmark', {
+    task_ids: options?.taskIds ?? [],
+    max_tasks: options?.maxTasks ?? 0,
+    dry_run: options?.dryRun ?? true,
+  });
   return res.data;
 };

@@ -14,6 +14,7 @@ import * as Clipboard from 'expo-clipboard';
 import {
   DatasetExportFormat,
   DatasetSummary,
+  RlaifBenchmarkResult,
   RlaifPair,
   RlaifRunResult,
   RlaifStats,
@@ -24,7 +25,9 @@ import {
   exportDataset,
   fetchDatasetSummary,
   fetchRlaifTasks,
+  isVersionConflict,
   runRlaif,
+  runRlaifBenchmark,
   setCuratedGoldenFlag,
   upsertCuratedGolden,
   upsertRlaifTask,
@@ -58,6 +61,13 @@ const GoldenDatasetCard: React.FC = () => {
   const [summary, setSummary] = useState<DatasetSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * 阶段十六 P0 修复：**操作级**错误（乐观锁冲突 / 导出失败 / 保存失败）。
+   * ⚠️ 之前这些错误写进 `error`，而 `error` 是「加载失败」分支 ⇒ 一旦并发冲突，
+   *    整张卡片（表单 + 列表 + 评测台）会被错误文案顶掉，用户连「重试」入口都看不到。
+   *    ⇒ 操作级错误单独走 `actionError`，以横幅形式展示，不影响卡片主体。
+   */
+  const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<DatasetExportFormat | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // 阶段十三 P1：基准模型（Modelfile 的 FROM 行 / LoRA 脚本的 BASE_MODEL）
@@ -81,6 +91,11 @@ const GoldenDatasetCard: React.FC = () => {
   const [curateCompletion, setCurateCompletion] = useState('');
   const [curateModel, setCurateModel] = useState('');
   const [curateSaving, setCurateSaving] = useState(false);
+  /** 阶段十六 P0 · 编辑模式（携带乐观锁基准值 updated_at） */
+  const [curateEditing, setCurateEditing] = useState<{
+    requestId: string;
+    updatedAt: number;
+  } | null>(null);
   // 阶段十五 P1 · 自定义验算考题（可折叠表单）
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
@@ -89,6 +104,15 @@ const GoldenDatasetCard: React.FC = () => {
   const [taskMustNot, setTaskMustNot] = useState('');
   const [taskMinLength, setTaskMinLength] = useState('4');
   const [taskSaving, setTaskSaving] = useState(false);
+  /** 阶段十六 P0 · 编辑已有自定义考题（携带乐观锁基准值 updated_at） */
+  const [taskEditing, setTaskEditing] = useState<{
+    taskId: string;
+    updatedAt: number;
+  } | null>(null);
+  // 阶段十六 P2 · 进化前后 A/B 智商对比评测
+  const [benchRunning, setBenchRunning] = useState(false);
+  const [benchResult, setBenchResult] = useState<RlaifBenchmarkResult | null>(null);
+  const [benchError, setBenchError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -155,7 +179,7 @@ const GoldenDatasetCard: React.FC = () => {
         }
         void load();
       } catch (e: unknown) {
-        setError(describeCloudError(e, 'session'));
+        setActionError(describeCloudError(e, 'session'));
       } finally {
         setBusy(null);
       }
@@ -178,7 +202,7 @@ const GoldenDatasetCard: React.FC = () => {
           filename,
         });
       } catch (e: unknown) {
-        setError(describeCloudError(e, 'session'));
+        setActionError(describeCloudError(e, 'session'));
       } finally {
         setBusy(null);
       }
@@ -236,67 +260,112 @@ const GoldenDatasetCard: React.FC = () => {
    * 录完立刻进黄金召回池 ⇒ 下一次 Playground 提问就能命中它（Few-Shot 注入）。
    * 服务端落库前会自动脱敏（明文 Key 打码），并打上 `curated:` 前缀
    * ⇒ 运维可按前缀精准清理，绝不误伤真实买家评价。
+   *
+   * ⚠️ 阶段十六 P0：处于**编辑模式**时携带 `expectedUpdatedAt` ⇒ 别人先改了
+   * 同一条 ⇒ 服务端回 409（不静默覆盖），提示刷新后再改。
    */
   const handleCurateSave = useCallback(async () => {
     if (!curatePrompt.trim() || !curateCompletion.trim()) {
-      setError('请同时填写「问题」与「标准答案」');
+      setActionError('请同时填写「问题」与「标准答案」');
       return;
     }
     setCurateSaving(true);
-    setError(null);
+    setActionError(null);
     setNotice(null);
     try {
       const res = await upsertCuratedGolden({
+        requestId: curateEditing?.requestId,
         promptText: curatePrompt.trim(),
         completionText: curateCompletion.trim(),
         modelId: curateModel.trim() || undefined,
         isGolden: true,
+        expectedUpdatedAt: curateEditing?.updatedAt,
       });
-      setNotice(`✓ 已录入黄金记忆 ${res.request_id}（立刻可被召回注入）`);
+      setNotice(
+        curateEditing
+          ? `✓ 已更新黄金记忆 ${res.request_id}（乐观锁校验通过）`
+          : `✓ 已录入黄金记忆 ${res.request_id}（立刻可被召回注入）`,
+      );
       setCuratePrompt('');
       setCurateCompletion('');
+      setCurateModel('');
+      setCurateEditing(null);
       void load();
     } catch (e: unknown) {
-      setError(describeCloudError(e, 'session'));
+      setActionError(
+        isVersionConflict(e)
+          ? '这条黄金记忆已被他人修改（并发冲突），请刷新后重新编辑'
+          : describeCloudError(e, 'session'),
+      );
     } finally {
       setCurateSaving(false);
     }
-  }, [curateCompletion, curateModel, curatePrompt, load]);
+  }, [curateCompletion, curateEditing, curateModel, curatePrompt, load]);
 
-  /** 阶段十五 P1 · 设为黄金 / 取消黄金（编辑权，不改写正文）。 */
+  /** 阶段十五 P1 · 设为黄金 / 取消黄金（编辑权，不改写正文）。
+   *
+   * ⚠️ 阶段十六 P0：带 `updatedAt` ⇒ 并发改同一条时服务端回 409。
+   */
   const handleToggleGolden = useCallback(
-    async (requestId: string, next: boolean) => {
-      setError(null);
+    async (requestId: string, next: boolean, updatedAt?: number) => {
+      setActionError(null);
       try {
-        await setCuratedGoldenFlag(requestId, next);
+        await setCuratedGoldenFlag(requestId, next, updatedAt);
         setNotice(next ? `✓ ${requestId} 已设为黄金样本` : `✓ ${requestId} 已取消黄金标记`);
         void load();
       } catch (e: unknown) {
-        setError(describeCloudError(e, 'session'));
+        setActionError(
+          isVersionConflict(e)
+            ? '这条样本已被他人修改（并发冲突），请刷新后重试'
+            : describeCloudError(e, 'session'),
+        );
       }
     },
     [load],
+  );
+
+  /** 阶段十六 P0 · 进入"编辑一条黄金记忆"模式（回填表单 + 携带乐观锁基准）。 */
+  const handleEditSample = useCallback(
+    (row: {
+      request_id: string;
+      prompt_text: string;
+      completion_text: string;
+      model_id: string;
+      updated_at?: number;
+    }) => {
+      setCurateEditing({ requestId: row.request_id, updatedAt: row.updated_at ?? 0 });
+      setCuratePrompt(row.prompt_text || '');
+      setCurateCompletion(row.completion_text || '');
+      setCurateModel(row.model_id || '');
+      setCurateOpen(true);
+      setNotice(`✎ 正在编辑 ${row.request_id}（保存时做乐观锁校验）`);
+    },
+    [],
   );
 
   /** 阶段十五 P1 · 删除策展件 / 自动验算产物（真实买家评价服务端会拒删）。 */
   const handleDeleteSample = useCallback(
     async (requestId: string) => {
-      setError(null);
+      setActionError(null);
       try {
         await deleteCuratedSample(requestId);
         setNotice(`✓ 已删除 ${requestId}`);
         void load();
       } catch (e: unknown) {
-        setError(describeCloudError(e, 'session'));
+        setActionError(describeCloudError(e, 'session'));
       }
     },
     [load],
   );
 
-  /** 阶段十五 P1 · 新增一道自定义验算考题（保存后自动纳入跑批范围）。 */
+  /** 阶段十五 P1 · 新增一道自定义验算考题（保存后自动纳入跑批范围）。
+   *
+   * ⚠️ 阶段十六 P0：编辑模式（`taskEditing`）时携带 `expectedUpdatedAt` ⇒
+   * 并发改同一道题时服务端回 409（后写不覆盖先写）。
+   */
   const handleTaskSave = useCallback(async () => {
     if (!taskPrompt.trim()) {
-      setError('请填写「考题」');
+      setActionError('请填写「考题」');
       return;
     }
     const must = taskMust
@@ -308,44 +377,104 @@ const GoldenDatasetCard: React.FC = () => {
       .map((s) => s.trim())
       .filter(Boolean);
     setTaskSaving(true);
-    setError(null);
+    setActionError(null);
     setNotice(null);
     try {
       const res = await upsertRlaifTask({
+        taskId: taskEditing?.taskId,
         title: taskTitle.trim() || taskPrompt.trim().slice(0, 24),
         prompt: taskPrompt.trim(),
         mustContain: must,
         mustNotContain: mustNot,
         minLength: Math.max(1, parseInt(taskMinLength || '4', 10) || 4),
+        expectedUpdatedAt: taskEditing?.updatedAt,
       });
-      setNotice(`✓ 已新增自定义考题 ${res.task_id}（自动纳入跑批范围）`);
+      setNotice(
+        taskEditing
+          ? `✓ 已更新自定义考题 ${res.task_id}（乐观锁校验通过）`
+          : `✓ 已新增自定义考题 ${res.task_id}（自动纳入跑批范围）`,
+      );
       setTaskTitle('');
       setTaskPrompt('');
       setTaskMust('');
       setTaskMustNot('');
+      setTaskEditing(null);
       // 题库立刻刷新 —— 新题马上能在下面的列表里看到
       void loadRlaif();
     } catch (e: unknown) {
-      setError(describeCloudError(e, 'session'));
+      setActionError(
+        isVersionConflict(e)
+          ? '这道考题已被他人修改（并发冲突），请刷新后重新编辑'
+          : describeCloudError(e, 'session'),
+      );
     } finally {
       setTaskSaving(false);
     }
-  }, [loadRlaif, taskMinLength, taskMust, taskMustNot, taskPrompt, taskTitle]);
+  }, [
+    loadRlaif,
+    taskEditing,
+    taskMinLength,
+    taskMust,
+    taskMustNot,
+    taskPrompt,
+    taskTitle,
+  ]);
+
+  /** 阶段十六 P0 · 进入"编辑一道自定义考题"模式（回填表单 + 携带乐观锁基准）。 */
+  const handleEditTask = useCallback((t: RlaifTask) => {
+    setTaskEditing({ taskId: t.id, updatedAt: t.updated_at ?? 0 });
+    setTaskTitle(t.title || '');
+    setTaskPrompt(t.prompt || '');
+    setTaskMust((t.rules?.must_contain ?? t.must_contain ?? []).join(', '));
+    setTaskMustNot((t.rules?.must_not_contain ?? t.must_not_contain ?? []).join(', '));
+    setTaskMinLength(String(t.rules?.min_length ?? t.min_length ?? 4));
+    setTaskFormOpen(true);
+    setNotice(`✎ 正在编辑考题 ${t.id}（保存时做乐观锁校验）`);
+  }, []);
 
   /** 阶段十五 P1 · 删除自定义考题（内置题库不可删）。 */
   const handleDeleteTask = useCallback(
     async (taskId: string) => {
-      setError(null);
+      setActionError(null);
       try {
         await deleteRlaifTask(taskId);
         setNotice(`✓ 已删除自定义考题 ${taskId}`);
         void loadRlaif();
       } catch (e: unknown) {
-        setError(describeCloudError(e, 'session'));
+        setActionError(describeCloudError(e, 'session'));
       }
     },
     [loadRlaif],
   );
+
+  /**
+   * 阶段十六 P2 · 一键运行「进化前后 A/B 智商对比评测」。
+   *
+   * 同一批考题上跑两种模式：
+   * - **Baseline** = 关闭黄金记忆注入（模型没有范例可抄）；
+   * - **Evolved** = 开启黄金记忆注入（模型沿用召回的黄金范例作答）。
+   *
+   * ⚠️ 本接口**恒不写库** ⇒ 跑多少次都不污染正式语料池。
+   */
+  const handleBenchmarkRun = useCallback(async () => {
+    setBenchRunning(true);
+    setBenchError(null);
+    setNotice(null);
+    try {
+      const res = await runRlaifBenchmark({ dryRun: true });
+      setBenchResult(res);
+      const delta = Number(res.improvement_delta ?? 0);
+      const sign = delta >= 0 ? '+' : '';
+      setNotice(
+        `📊 A/B 评测完成：Baseline ${(res.baseline_pass_rate * 100).toFixed(1)}% → ` +
+          `Evolved ${(res.evolved_pass_rate * 100).toFixed(1)}%（${sign}${delta.toFixed(1)}%）`,
+      );
+    } catch (e: unknown) {
+      setBenchError(describeCloudError(e, 'session'));
+    } finally {
+      setBenchRunning(false);
+    }
+  }, []);
 
   const stats = summary;
   const models = stats?.models ?? [];
@@ -380,6 +509,12 @@ const GoldenDatasetCard: React.FC = () => {
         <Text style={styles.errorText}>⚠️ {error}</Text>
       ) : (
         <>
+          {/* 阶段十六 P0 · 操作级错误横幅（不顶掉卡片主体） */}
+          {actionError ? (
+            <Text style={styles.errorText} testID="golden-dataset-error">
+              ⚠️ {actionError}
+            </Text>
+          ) : null}
           <View style={styles.statGrid} testID="golden-dataset-stats">
             <View style={styles.statBox}>
               <Text style={styles.statValue} testID="golden-dataset-total">
@@ -517,13 +652,22 @@ const GoldenDatasetCard: React.FC = () => {
                 <View style={styles.rowActions}>
                   <TouchableOpacity
                     style={styles.rowActionBtn}
-                    onPress={() => void handleToggleGolden(row.request_id, !row.is_golden)}
+                    onPress={() => void handleToggleGolden(row.request_id, !row.is_golden, row.updated_at)}
                     activeOpacity={0.8}
                     testID={`golden-dataset-row-golden-${row.id}`}
                   >
                     <Text style={styles.rowActionText}>
                       {row.is_golden ? '★ 取消黄金' : '☆ 设为黄金'}
                     </Text>
+                  </TouchableOpacity>
+                  {/* 阶段十六 P0 · 编辑（携带乐观锁基准 updated_at） */}
+                  <TouchableOpacity
+                    style={styles.rowActionBtn}
+                    onPress={() => handleEditSample(row)}
+                    activeOpacity={0.8}
+                    testID={`golden-dataset-row-edit-${row.id}`}
+                  >
+                    <Text style={styles.rowActionText}>✏ 编辑</Text>
                   </TouchableOpacity>
                   {DELETABLE_PREFIXES.some((p) => (row.request_id || '').startsWith(p)) ? (
                     <TouchableOpacity
@@ -614,6 +758,97 @@ const GoldenDatasetCard: React.FC = () => {
             ) : null}
           </View>
 
+      {/* 阶段十六 P2 · 进化前后 A/B 智商对比评测台 */}
+      <View style={styles.benchBox} testID="golden-dataset-benchmark-panel">
+        <View style={styles.benchHead}>
+          <Text style={styles.benchTitle}>📊 进化前后 A/B 智商对比评测</Text>
+          <Text style={styles.benchHint}>
+            同一批考题上对比「关闭黄金记忆注入」与「开启注入 + 黄金召回」的通过率。
+            本评测**恒不写库**（只读黄金样本 + 内存判分），跑多少次都不污染语料池。
+          </Text>
+        </View>
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.exportBtn, benchRunning && styles.btnDisabled]}
+            onPress={() => void handleBenchmarkRun()}
+            disabled={benchRunning}
+            activeOpacity={0.8}
+            testID="golden-dataset-benchmark-run"
+          >
+            <Text style={styles.exportBtnText}>
+              {benchRunning ? '评测中…' : '📊 一键运行 A/B 对比评测'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {benchError ? (
+          <Text style={styles.errorText} testID="golden-dataset-benchmark-error">
+            ⚠️ {benchError}
+          </Text>
+        ) : null}
+        {benchResult ? (
+          <View style={styles.benchBoard} testID="golden-dataset-benchmark-result">
+            <View style={styles.benchRow}>
+              <View style={styles.benchCell}>
+                <Text style={styles.benchCellLabel}>Baseline（无黄金上下文）</Text>
+                <Text style={styles.benchCellValue} testID="golden-dataset-benchmark-baseline">
+                  {(benchResult.baseline_pass_rate * 100).toFixed(1)}%
+                </Text>
+                <Text style={styles.benchCellSub}>
+                  {benchResult.baseline_passed} / {benchResult.total_tasks} 题通过
+                </Text>
+              </View>
+              <View style={styles.benchCell}>
+                <Text style={styles.benchCellLabel}>Evolved（黄金记忆增强）</Text>
+                <Text
+                  style={[styles.benchCellValue, { color: colors.accent }]}
+                  testID="golden-dataset-benchmark-evolved"
+                >
+                  {(benchResult.evolved_pass_rate * 100).toFixed(1)}%
+                </Text>
+                <Text style={styles.benchCellSub}>
+                  {benchResult.evolved_passed} / {benchResult.total_tasks} 题通过
+                </Text>
+              </View>
+              <View style={styles.benchCell}>
+                <Text style={styles.benchCellLabel}>提升</Text>
+                <Text
+                  style={[
+                    styles.benchCellValue,
+                    { color: benchResult.improvement_delta >= 0 ? colors.accent : colors.danger },
+                  ]}
+                  testID="golden-dataset-benchmark-delta"
+                >
+                  {benchResult.improvement_delta >= 0 ? '+' : ''}
+                  {Number(benchResult.improvement_delta ?? 0).toFixed(1)}%
+                </Text>
+                <Text style={styles.benchCellSub}>
+                  {benchResult.improved_tasks} 题因黄金记忆而通过
+                </Text>
+              </View>
+            </View>
+            {(benchResult.details ?? []).slice(0, 8).map((d) => (
+              <View
+                key={d.task_id}
+                style={styles.benchDetailRow}
+                testID={`golden-dataset-benchmark-detail-${d.task_id}`}
+              >
+                <Text style={styles.benchDetailTitle}>
+                  {d.baseline_passed ? '✅' : '❌'} → {d.evolved_passed ? '✅' : '❌'} ·{' '}
+                  {d.title || d.task_id}
+                </Text>
+                <Text style={styles.benchDetailSub}>
+                  召回黄金 {d.golden_count} 条（相关 {d.golden_relevant} 条）
+                  {d.improved ? ' · 黄金记忆使其通过' : ''}
+                </Text>
+              </View>
+            ))}
+            {(benchResult.details ?? []).length > 8 ? (
+              <Text style={styles.emptyText}>仅预览前 8 题，完整明细请看接口原始返回。</Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+
       {/* 阶段十五 P1 · 黄金记忆**手工策展**（可折叠表单） */}
       <View style={styles.curateBox} testID="golden-dataset-curate-panel">
         <TouchableOpacity
@@ -631,6 +866,29 @@ const GoldenDatasetCard: React.FC = () => {
             <Text style={styles.curateHint}>
               录完立刻进黄金召回池 ⇒ 下一次 Playground 提问就会命中它（Few-Shot 注入）。
             </Text>
+            {/* 阶段十六 P0 · 编辑模式提示（带乐观锁基准） */}
+            {curateEditing ? (
+              <View style={styles.editBanner} testID="golden-dataset-curate-editing">
+                <Text style={styles.editBannerText}>
+                  ✎ 正在编辑 {curateEditing.requestId}（保存时校验 updated_at =
+                  {curateEditing.updatedAt}，若已被他人改动会拒绝保存）
+                </Text>
+                <TouchableOpacity
+                  style={styles.rowActionBtn}
+                  onPress={() => {
+                    setCurateEditing(null);
+                    setCuratePrompt('');
+                    setCurateCompletion('');
+                    setCurateModel('');
+                    setNotice('已退出编辑模式');
+                  }}
+                  activeOpacity={0.8}
+                  testID="golden-dataset-curate-cancel-edit"
+                >
+                  <Text style={styles.rowActionText}>✕ 取消编辑</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <TextInput
               style={styles.curateInput}
               value={curatePrompt}
@@ -672,7 +930,7 @@ const GoldenDatasetCard: React.FC = () => {
                 testID="golden-dataset-curate-save"
               >
                 <Text style={styles.exportBtnText}>
-                  {curateSaving ? '录入中…' : '✓ 保存为黄金记忆'}
+                  {curateSaving ? '录入中…' : curateEditing ? '✓ 保存修改' : '✓ 保存为黄金记忆'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -697,6 +955,30 @@ const GoldenDatasetCard: React.FC = () => {
             <Text style={styles.curateHint}>
               必含 / 违禁用逗号分隔；`re:` 开头走正则。保存后自动纳入 RLAIF 跑批范围。
             </Text>
+            {/* 阶段十六 P0 · 编辑模式提示（带乐观锁基准） */}
+            {taskEditing ? (
+              <View style={styles.editBanner} testID="golden-dataset-rlaif-task-editing">
+                <Text style={styles.editBannerText}>
+                  ✎ 正在编辑考题 {taskEditing.taskId}（保存时校验 updated_at =
+                  {taskEditing.updatedAt}，若已被他人改动会拒绝保存）
+                </Text>
+                <TouchableOpacity
+                  style={styles.rowActionBtn}
+                  onPress={() => {
+                    setTaskEditing(null);
+                    setTaskTitle('');
+                    setTaskPrompt('');
+                    setTaskMust('');
+                    setTaskMustNot('');
+                    setNotice('已退出编辑模式');
+                  }}
+                  activeOpacity={0.8}
+                  testID="golden-dataset-rlaif-task-cancel-edit"
+                >
+                  <Text style={styles.rowActionText}>✕ 取消编辑</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <TextInput
               style={styles.curateInput}
               value={taskTitle}
@@ -756,7 +1038,7 @@ const GoldenDatasetCard: React.FC = () => {
                 testID="golden-dataset-rlaif-task-save"
               >
                 <Text style={styles.exportBtnText}>
-                  {taskSaving ? '保存中…' : '✓ 添加自定义考题'}
+                  {taskSaving ? '保存中…' : taskEditing ? '✓ 保存考题修改' : '✓ 添加自定义考题'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -775,16 +1057,31 @@ const GoldenDatasetCard: React.FC = () => {
                   <Text style={styles.taskRowPrompt} numberOfLines={2}>
                     {t.prompt}
                   </Text>
-                  <TouchableOpacity
-                    style={[styles.rowActionBtn, styles.rowActionDanger]}
-                    onPress={() => void handleDeleteTask(t.id)}
-                    activeOpacity={0.8}
-                    testID={`golden-dataset-rlaif-task-delete-${t.id}`}
-                  >
-                    <Text style={[styles.rowActionText, styles.rowActionDangerText]}>
-                      🗑 删除考题
-                    </Text>
-                  </TouchableOpacity>
+                  <Text style={styles.taskRowPrompt} numberOfLines={1}>
+                    必含 {(t.rules?.must_contain ?? t.must_contain ?? []).join(' / ') || '—'} ·
+                    updated_at {t.updated_at ?? 0}
+                  </Text>
+                  <View style={styles.rowActions}>
+                    {/* 阶段十六 P0 · 编辑考题（携带乐观锁基准 updated_at） */}
+                    <TouchableOpacity
+                      style={styles.rowActionBtn}
+                      onPress={() => handleEditTask(t)}
+                      activeOpacity={0.8}
+                      testID={`golden-dataset-rlaif-task-edit-${t.id}`}
+                    >
+                      <Text style={styles.rowActionText}>✏ 编辑</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.rowActionBtn, styles.rowActionDanger]}
+                      onPress={() => void handleDeleteTask(t.id)}
+                      activeOpacity={0.8}
+                      testID={`golden-dataset-rlaif-task-delete-${t.id}`}
+                    >
+                      <Text style={[styles.rowActionText, styles.rowActionDangerText]}>
+                        🗑 删除考题
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               ))}
           </View>
@@ -1052,6 +1349,53 @@ const styles = StyleSheet.create({
     minHeight: 30,
   },
   taskList: { marginTop: spacing.xs },
+  // 阶段十六 P0 · 编辑模式提示条
+  editBanner: {
+    marginTop: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.purple,
+    gap: spacing.xs,
+  },
+  editBannerText: { color: colors.purple, fontSize: fontSize.xs, lineHeight: 16 },
+  // 阶段十六 P2 · A/B 对比评测台
+  benchBox: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.cardAlt,
+  },
+  benchHead: { marginBottom: spacing.xs },
+  benchTitle: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '800' },
+  benchHint: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2, lineHeight: 16 },
+  benchBoard: { marginTop: spacing.sm },
+  benchRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  benchCell: {
+    flexGrow: 1,
+    minWidth: 92,
+    backgroundColor: colors.card,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  benchCellLabel: { color: colors.textMuted, fontSize: fontSize.xs },
+  benchCellValue: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800' },
+  benchCellSub: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
+  benchDetailRow: {
+    marginTop: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  benchDetailTitle: { color: colors.textPrimary, fontSize: fontSize.xs, fontWeight: '700' },
+  benchDetailSub: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
   taskRow: {
     marginTop: 4,
     paddingHorizontal: spacing.sm,
