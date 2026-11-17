@@ -814,6 +814,12 @@ export interface GovernanceNode {
   tokens: number;
   owner_wallet: string;
   last_heartbeat?: number | null;
+  /** 阶段十七 P2：GPU 温度（°C，None = 节点未上报 / 无独显） */
+  gpu_temp_c?: number | null;
+  /** 阶段十七 P2：风扇转速百分比 */
+  gpu_fan_pct?: number | null;
+  /** 阶段十七 P2：高温告警标记（服务端阈值 75°C） */
+  overheat_warning?: boolean;
 }
 
 export const fetchOwnerNodesGovernance = async (): Promise<{ nodes: GovernanceNode[] }> => {
@@ -2315,5 +2321,169 @@ export const runRlaifBenchmark = async (options?: {
     max_tasks: options?.maxTasks ?? 0,
     dry_run: options?.dryRun ?? true,
   });
+  return res.data;
+};
+
+/* ===================== 阶段十七 P0 · API Key 安全策略 ===================== */
+
+/** 同账户下**另一把** Key 的概览（掩码，无明文） */
+export interface ApiKeyPolicyKeyRow {
+  key_prefix: string;
+  key_last4: string;
+  label: string;
+  status: string;
+  daily_limit_usd: number;
+  allowed_ips: string[];
+  allowed_models: string[];
+  updated_at: number;
+  created_at: number;
+  /** true = 当前正在操作的这把 Key */
+  current: boolean;
+}
+
+/** 当前 API Key 的安全策略快照 */
+export interface ApiKeyPolicy {
+  ok?: boolean;
+  found: boolean;
+  status: string;
+  daily_limit_usd: number;
+  allowed_ips: string[];
+  allowed_models: string[];
+  updated_at: number;
+  key_prefix: string;
+  key_last4: string;
+  label: string;
+  keys: ApiKeyPolicyKeyRow[];
+  account_handle?: string;
+}
+
+/**
+ * 读取当前 API Key 的安全策略（冻结状态 / IP 白名单 / 模型白名单 / 单日限额）。
+ *
+ * ⚠️ **被冻结的 Key 也能调用本端点** —— 否则用户被冻之后连"解冻自己"
+ * 都做不到（死锁）。但推理 / 消费接口依然拒绝被冻的 Key。
+ */
+export const fetchApiKeyPolicy = async (): Promise<ApiKeyPolicy> => {
+  const res = await cloudApi.get('/api/v1/user/apikey/policy');
+  return res.data;
+};
+
+/** 更新当前 API Key 的安全策略（部分字段 = 不改动该项） */
+export const updateApiKeyPolicy = async (payload: {
+  status?: 'active' | 'frozen';
+  daily_limit_usd?: number;
+  allowed_ips?: string[];
+  allowed_models?: string[];
+}): Promise<{
+  ok: boolean;
+  status?: string;
+  daily_limit_usd?: number;
+  allowed_ips?: string[];
+  allowed_models?: string[];
+  error?: string;
+}> => {
+  const res = await cloudApi.post('/api/v1/user/apikey/policy', payload);
+  return res.data;
+};
+
+/** 安全策略更新失败的可读提示（400 + {code}） */
+export const describePolicyError = (e: unknown): string => {
+  const err = e as {
+    response?: { status?: number; data?: { detail?: string | { code?: string } } };
+  };
+  const status = err?.response?.status;
+  const detail = err?.response?.data?.detail;
+  const code = typeof detail === 'object' && detail ? detail.code : '';
+  if (status === 401) return 'API Key 无效或已吊销，请重新设置密钥';
+  if (status === 403) return '当前 Key 无权修改安全策略';
+  if (code === 'revoke_not_allowed') return '吊销（revoked）是不可逆操作，请联系平台';
+  if (code === 'revoked_immutable') return '已吊销的 Key 无法恢复';
+  if (code === 'bad_daily_limit') return '单日限额必须是非负数字';
+  if (code === 'key_not_found') return '找不到这把 API Key';
+  if (typeof detail === 'string' && detail) return detail;
+  return describeCloudError(e);
+};
+
+/* ===================== 阶段十七 P1 · 智能告警中心 + 场景 A/B 拆解 ===================== */
+
+/** 一个场景（A = 开源基础模型 / B = 创作者版税模型）的聚合口径 */
+export interface ScenarioBucket {
+  cost_usd: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  calls: number;
+  /** 该场景累计产生的创作者版税 */
+  royalty_usd: number;
+  /** 费用占比（0~1） */
+  cost_share: number;
+  /** Token 占比（0~1） */
+  token_share: number;
+}
+
+/** 一条智能风控告警 */
+export interface SmartAlert {
+  code: string;
+  level: 'high' | 'medium' | 'low';
+  message: string;
+  value?: number;
+  threshold?: number;
+  limit?: number;
+  ratio?: number;
+  node_id?: string;
+}
+
+/** 买家总览（带 Key = 账户口径；不带 Key = 全网公开基准） */
+export interface OverviewAnalytics {
+  /** true = 账户口径；false = 全网公开汇总 */
+  scoped: boolean;
+  account_handle: string;
+  scenario_a: ScenarioBucket;
+  scenario_b: ScenarioBucket;
+  total_cost_usd: number;
+  total_tokens: number;
+  total_calls: number;
+  alerts: SmartAlert[];
+  balance_usd?: number;
+  balance_frozen_usd?: number;
+  daily_limit_usd?: number;
+}
+
+/**
+ * 智能告警中心 + 场景 A/B 费用拆解。
+ *
+ * - 带**有效** API Key ⇒ 账户口径（余额 / 限额 / 冻结状态 + 账户消费拆解）；
+ * - 不带或无效凭证 ⇒ 全网公开基准（只有 A/B 拆解与节点侧告警，无账户信息）。
+ */
+export const fetchOverviewAnalytics = async (): Promise<OverviewAnalytics> => {
+  const res = await cloudApi.get('/api/v1/user/overview-analytics');
+  return res.data;
+};
+
+/* ===================== 阶段十七 P2 · 网关内容安全拦截（业主视角） ===================== */
+
+/** 一条拦截记录（业主后台查看用） */
+export interface ModerationBlockRow {
+  id: number;
+  account_handle: string;
+  request_id: string;
+  rule: string;
+  snippet: string;
+  client_ip: string;
+  model_id: string;
+  created_at: number;
+}
+
+/** 拦截计数 + 规则表 + 最近明细（OWNER） */
+export interface ModerationBlocksResponse {
+  total: number;
+  rules: Array<{ name: string; description?: string; pattern?: string }>;
+  enabled: boolean;
+  recent: ModerationBlockRow[];
+}
+
+export const fetchOwnerModerationBlocks = async (
+  limit: number = 20,
+): Promise<ModerationBlocksResponse> => {
+  const res = await cloudApi.get('/api/v1/owner/moderation/blocks', { params: { limit } });
   return res.data;
 };

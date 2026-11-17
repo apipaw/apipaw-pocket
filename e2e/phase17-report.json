@@ -1,0 +1,247 @@
+{
+  "stamp": "P17E2EMWL4LI5S",
+  "buyerHandle": "acct_ba824805001d1c6c",
+  "buyerKeyMasked": "paw-sk-****",
+  "policyRes": null,
+  "analyticsRes": {
+    "scoped": true,
+    "total_cost_usd": 0,
+    "alerts": [
+      "low_balance",
+      "node_offline",
+      "node_offline",
+      "node_offline",
+      "node_offline",
+      "node_offline",
+      "node_offline"
+    ]
+  },
+  "passed": 44,
+  "total": 44,
+  "soft": 0,
+  "results": [
+    {
+      "name": "①a 签发全新买家账户",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "①b 领取新手体验金（后续校验零扣费要用）",
+      "pass": true,
+      "detail": "HTTP 200 balance=$0.5"
+    },
+    {
+      "name": "②a GET 策略端点：Key 正常时返回 active",
+      "pass": true,
+      "detail": "HTTP 200 status=active"
+    },
+    {
+      "name": "②b 冻结 Key 成功",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "②c 冻结态仍可读策略（不许死锁）",
+      "pass": true,
+      "detail": "HTTP 200 status=frozen"
+    },
+    {
+      "name": "②d 冻结态推理 ⇒ 403 api_key_frozen",
+      "pass": true,
+      "detail": "HTTP 403 code=api_key_frozen"
+    },
+    {
+      "name": "②e 冻结拦截零扣费（余额分毫不动）",
+      "pass": true,
+      "detail": "$0.5 → $0.5"
+    },
+    {
+      "name": "②f 冻结态自助解冻成功（不死锁）",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "②g 设置 IP 白名单成功",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "②h IP 不在白名单 ⇒ 403 ip_not_allowed",
+      "pass": true,
+      "detail": "HTTP 403 code=ip_not_allowed"
+    },
+    {
+      "name": "②i IP 拦截零扣费",
+      "pass": true,
+      "detail": "$0.5 → $0.5"
+    },
+    {
+      "name": "②j 设置模型白名单成功",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "②k 模型不在白名单 ⇒ 403 model_not_allowed",
+      "pass": true,
+      "detail": "HTTP 403 code=model_not_allowed"
+    },
+    {
+      "name": "②l 模型拦截零扣费",
+      "pass": true,
+      "detail": "$0.5 → $0.5"
+    },
+    {
+      "name": "②m 复位白名单与限额成功",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "②n 复位后推理不再被策略拦截",
+      "pass": true,
+      "detail": "HTTP 200 "
+    },
+    {
+      "name": "③a 命中高危特征 ⇒ 400 content_policy_violation",
+      "pass": true,
+      "detail": "HTTP 400 code=content_policy_violation"
+    },
+    {
+      "name": "③b 内容安全拦截零扣费（无预扣、无扣费流水）",
+      "pass": true,
+      "detail": "$0.5 → $0.5"
+    },
+    {
+      "name": "③c 业主后台看得到拦截计数",
+      "pass": true,
+      "detail": "HTTP 200 total=2"
+    },
+    {
+      "name": "③d 拦截明细含本次请求片段",
+      "pass": true,
+      "detail": "rule=test_marker account=acct_ba824805001d1c6c"
+    },
+    {
+      "name": "④a overview-analytics 带 Key ⇒ 账户口径",
+      "pass": true,
+      "detail": "HTTP 200 scoped=true"
+    },
+    {
+      "name": "④b 场景 A/B 拆解字段齐全",
+      "pass": true,
+      "detail": "A={\"cost_usd\":0,\"prompt_tokens\":0,\"completion_tokens\":0,\"calls"
+    },
+    {
+      "name": "④c 告警列表可读",
+      "pass": true,
+      "detail": "alerts=7"
+    },
+    {
+      "name": "④d 不带 Key ⇒ 公开脱敏口径（不泄露账户）",
+      "pass": true,
+      "detail": "HTTP 200 scoped=false"
+    },
+    {
+      "name": "① 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "⑤a 🔔 智能告警面板已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤b 场景 A/B 费用占比条已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤c 总消费读数可读",
+      "pass": true,
+      "detail": "$0.000000"
+    },
+    {
+      "name": "⑤d 🛡️ 密钥安全策略面板已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤f 策略面板读到当前状态（正常）",
+      "pass": true,
+      "detail": "正常"
+    },
+    {
+      "name": "⑤h UI 冻结成功并给出提示",
+      "pass": true,
+      "detail": "✓ 已冻结：这把 Key 的推理请求会被拒绝（零扣费）"
+    },
+    {
+      "name": "⑤i UI 冻结后推理真的被拦（403 api_key_frozen）",
+      "pass": true,
+      "detail": "HTTP 403 code=api_key_frozen"
+    },
+    {
+      "name": "⑤k UI 解冻成功",
+      "pass": true,
+      "detail": "✓ 已解冻：这把 Key 恢复可用"
+    },
+    {
+      "name": "⑤m 二维码弹窗已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤n 二维码载荷是导入链接",
+      "pass": true,
+      "detail": "apipaw://key?h=cloud.apipaw.com&k=paw-sk-****"
+    },
+    {
+      "name": "⑤o 二维码图形已用 SVG 画出（纯前端生成）",
+      "pass": true,
+      "detail": "path 数=1"
+    },
+    {
+      "name": "⑤p 二维码明文密钥风险提示已展示",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤t 业主侧内容安全拦截器看板已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤u 拦截计数读数可读",
+      "pass": true,
+      "detail": "累计拦截=2"
+    },
+    {
+      "name": "⑤v 节点治理卡显示 GPU 温控徽标",
+      "pass": true,
+      "detail": "命中 1 个节点"
+    },
+    {
+      "name": "console 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-424d2d913c35e28792ecc4f1f2768a09.js → content-encoding=gzip content-length=448982"
+    },
+    {
+      "name": "console 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "438.5KB"
+    },
+    {
+      "name": "pocket 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-424d2d913c35e28792ecc4f1f2768a09.js → content-encoding=gzip content-length=448982"
+    },
+    {
+      "name": "pocket 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "438.5KB"
+    }
+  ],
+  "pageErrors": [
+    "console.error: Failed to load resource: the server responded with a status of 403 ()"
+  ]
+}

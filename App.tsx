@@ -47,6 +47,12 @@ import WalletPanel from './src/components/WalletPanel';
 import OwnerPasskeyCard from './src/components/OwnerPasskeyCard';
 import BuyerLedgerCard from './src/components/BuyerLedgerCard';
 import NodeLeaderboardCard from './src/components/NodeLeaderboardCard';
+// 阶段十七 P0/P1：密钥安全策略（冻结 / IP 白名单 / 模型白名单 / 扫码导入二维码）
+//                   + 智能风控告警与场景 A/B 费用拆解
+import ApiKeyPolicyCard from './src/components/ApiKeyPolicyCard';
+import SmartAlertCard from './src/components/SmartAlertCard';
+// 阶段十七 P2：网关内容安全拦截器（业主视角）
+import ModerationBlocksCard from './src/components/ModerationBlocksCard';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
 import { colors, fontSize, radius, spacing } from './src/theme';
 import { injectWebTheme } from './src/ui/webTheme';
@@ -488,6 +494,10 @@ export default function App() {
 
             <PlaygroundCard />
             <PublicNodeCard />
+            {/* 阶段十七 P1：智能风控告警中心 + 场景 A/B 费用拆解（无 Key 时显示全网基准）*/}
+            <SmartAlertCard />
+            {/* 阶段十七 P0：买家密钥四重安全锁（冻结 / IP 白名单 / 模型白名单 / 扫码导入）*/}
+            <ApiKeyPolicyCard />
             {/* 阶段十 P1：买家个人收支账单明细（折叠面板，9 位小数）*/}
             <BuyerLedgerCard />
             {/* 阶段九 P0：全网实时推理与三方分账公示（公开数据）*/}
@@ -671,6 +681,8 @@ export default function App() {
             {hostTab === 'GOVERNANCE' && (
               <View style={styles.column}>
                 <NodeGovernanceCard />
+                {/* 阶段十七 P2：网关内容安全拦截器看板（命中即 400，零扣费）*/}
+                <ModerationBlocksCard />
                 <PricingApprovalCard />
                 {/* 阶段九 P2/P3：充值卡密签发 + 提现审批台（OWNER）*/}
                 <VoucherIssueCard />

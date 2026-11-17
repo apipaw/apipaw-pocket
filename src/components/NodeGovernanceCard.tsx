@@ -344,6 +344,25 @@ const NodeGovernanceCard: React.FC = () => {
                     <Text style={styles.nodeStat}>收益 ${(node.earnings_usd || 0).toFixed(4)}</Text>
                   </View>
 
+                  {/* 阶段十七 P2：GPU 温控读数（高温高亮，阈值与云端一致 75°C） */}
+                  {node.gpu_temp_c !== null && node.gpu_temp_c !== undefined ? (
+                    <View style={styles.gpuRow}>
+                      <Text
+                        style={[
+                          styles.gpuText,
+                          node.overheat_warning ? styles.gpuTextHot : styles.gpuTextOk,
+                        ]}
+                        testID={`gov-gpu-${node.node_id}`}
+                      >
+                        {node.overheat_warning ? '🔥 高温告警 ' : '🌡 '}
+                        GPU {Number(node.gpu_temp_c).toFixed(0)}°C
+                        {node.gpu_fan_pct !== null && node.gpu_fan_pct !== undefined
+                          ? ` · 风扇 ${Number(node.gpu_fan_pct).toFixed(0)}%`
+                          : ''}
+                      </Text>
+                    </View>
+                  ) : null}
+
                   <View style={styles.nodeActions}>
                     <StatusDot
                       color={node.alive ? colors.accent : colors.textMuted}
@@ -643,6 +662,11 @@ const styles = StyleSheet.create({
   nodeMeta: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
   nodeStatRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
   nodeStat: { color: colors.textSecondary, fontSize: fontSize.xs },
+  // 阶段十七 P2 · GPU 温控行
+  gpuRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 2 },
+  gpuText: { fontSize: fontSize.xs, fontWeight: '700' },
+  gpuTextOk: { color: colors.cyan },
+  gpuTextHot: { color: colors.danger },
   nodeActions: {
     flexDirection: 'row',
     alignItems: 'center',
