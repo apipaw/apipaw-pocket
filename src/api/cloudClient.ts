@@ -28,6 +28,105 @@ export const cloudApi = axios.create({
 });
 
 /**
+ * 阶段二十 P2 · **多网关主备降级**（前端内置容灾）。
+ *
+ * 后端（Agent 侧）已有主备自动切换；前端同样需要 —— 否则网关整体不可用时
+ * 整个看板直接白屏。做法与 Agent 侧同口径：
+ *
+ * - 只有 **502 / 503 / 504**（网关层错误）与**网络层不可达**才触发切换；
+ *   4xx 是「请求不对」，换个网关也一样错，切了纯属浪费；
+ * - 幂等请求（GET / HEAD）切到备用网关后**重放**；
+ *   非幂等（POST）**不重放**（避免重复下单 / 重复计费），
+ *   只把「当前网关」切走，让后续请求走健康网关；
+ * - 备用网关成功应答后，**过一道冷却期再切回主网关**（避免抖动来回搬）。
+ *
+ * 备用网关地址由构建期环境变量 ``EXPO_PUBLIC_CLOUD_BACKUP_URLS`` 提供
+ * （逗号分隔）；没配就退化成单网关，行为与从前完全一致。
+ */
+export const CLOUD_BACKUP_BASE_URLS: string[] = (
+  (process.env.EXPO_PUBLIC_CLOUD_BACKUP_URLS as string | undefined) || ''
+)
+  .split(',')
+  .map((u) => u.trim())
+  .filter((u) => !!u && u !== CLOUD_BASE_URL);
+
+export const CLOUD_GATEWAY_URLS: string[] = [CLOUD_BASE_URL, ...CLOUD_BACKUP_BASE_URLS];
+
+export interface GatewayStatus {
+  /** 当前生效的网关地址 */
+  baseUrl: string;
+  /** 当前网关在候选列表中的下标（0 = 主网关） */
+  index: number;
+  /** 候选网关总数 */
+  count: number;
+  /** 是否处于降级态（当前跑在备用网关上） */
+  degraded: boolean;
+  /** 最近一次切换原因 */
+  lastError: string;
+  /** 最近一次切换时间戳（ms） */
+  lastSwitchAt: number;
+}
+
+/** 切回主网关前的冷却期：避免一次抖动把请求在主备之间来回搬。 */
+const GATEWAY_FAILBACK_COOLDOWN_MS = 30000;
+
+let activeGatewayIndex = 0;
+let gatewayDegraded = false;
+let gatewayLastError = '';
+let gatewayLastSwitchAt = 0;
+const gatewayListeners = new Set<(status: GatewayStatus) => void>();
+
+export const getGatewayStatus = (): GatewayStatus => ({
+  baseUrl: CLOUD_GATEWAY_URLS[activeGatewayIndex] || CLOUD_BASE_URL,
+  index: activeGatewayIndex,
+  count: CLOUD_GATEWAY_URLS.length,
+  degraded: gatewayDegraded,
+  lastError: gatewayLastError,
+  lastSwitchAt: gatewayLastSwitchAt,
+});
+
+/** 订阅网关降级状态（用于在 UI 上打「已降级到备用网关」标记）。 */
+export const subscribeGatewayStatus = (
+  fn: (status: GatewayStatus) => void,
+): (() => void) => {
+  gatewayListeners.add(fn);
+  return () => {
+    gatewayListeners.delete(fn);
+  };
+};
+
+const notifyGatewayStatus = () => {
+  const status = getGatewayStatus();
+  gatewayListeners.forEach((fn) => {
+    try {
+      fn(status);
+    } catch {
+      /* 监听器异常不得影响请求链路 */
+    }
+  });
+};
+
+/** 切到下一个网关；没有备机时返回 false。 */
+const switchGateway = (reason: string): boolean => {
+  if (CLOUD_GATEWAY_URLS.length <= 1) return false;
+  activeGatewayIndex = (activeGatewayIndex + 1) % CLOUD_GATEWAY_URLS.length;
+  gatewayDegraded = activeGatewayIndex !== 0;
+  gatewayLastError = reason;
+  gatewayLastSwitchAt = Date.now();
+  notifyGatewayStatus();
+  return true;
+};
+
+/** 冷却期过后切回主网关（备用网关已证明可用）。 */
+const maybeFailbackToPrimary = () => {
+  if (activeGatewayIndex === 0) return;
+  if (Date.now() - gatewayLastSwitchAt < GATEWAY_FAILBACK_COOLDOWN_MS) return;
+  activeGatewayIndex = 0;
+  gatewayDegraded = false;
+  notifyGatewayStatus();
+};
+
+/**
  * 只接受**钱包会话 JWT** 的端点（阶段四 P3 新增的业主收益端点）。
  *
  * 其余端点继续走 API Key —— 这是阶段四「双通道鉴权：同一个 Authorization 头，
@@ -78,6 +177,9 @@ const isOwnerPath = (url: string | undefined): boolean => {
 
 // 统一注入凭证：会话端点用 JWT，业主端点「会话优先、回落 API Key」，其余用买家 API Key
 cloudApi.interceptors.request.use((config) => {
+  // 阶段二十 P2：所有请求都打**当前生效的网关**（降级时自动指向备用网关）
+  const gateway = CLOUD_GATEWAY_URLS[activeGatewayIndex];
+  if (gateway) config.baseURL = gateway;
   const { apiKey, sessionToken } = usePawStore.getState();
   let credential = apiKey;
   if (isJwtOnlyPath(config.url)) {
@@ -104,11 +206,22 @@ cloudApi.interceptors.request.use((config) => {
  */
 const MAX_GET_RETRIES = 2;
 
+/** 阶段二十 P2：网关层错误（与 Agent 侧 ``FAILOVER_STATUS_CODES`` 同口径）。 */
+const GATEWAY_FAILOVER_STATUSES = [502, 503, 504];
+
 cloudApi.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // 阶段二十 P2：备用网关已证明可用 ⇒ 冷却期过后切回主网关
+    maybeFailbackToPrimary();
+    return response;
+  },
   async (error) => {
     const config = error?.config as
-      | (AxiosRequestConfig & { __apipawRetry?: number; __apipawUsedSession?: boolean })
+      | (AxiosRequestConfig & {
+          __apipawRetry?: number;
+          __apipawUsedSession?: boolean;
+          __apipawGatewayRetry?: number;
+        })
       | undefined;
     if (!config) return Promise.reject(error);
 
@@ -124,6 +237,21 @@ cloudApi.interceptors.response.use(
     // 一把失效的 API Key 返回 401 不该把好端的钱包会话一起踢掉。
     if (status === 401 && config.__apipawUsedSession && usePawStore.getState().sessionToken) {
       usePawStore.getState().clearSession();
+    }
+
+    // 阶段二十 P2 · 多网关容灾：网关层错误 / 网络不可达 ⇒ 切备用网关。
+    const isGatewayError = !!status && GATEWAY_FAILOVER_STATUSES.includes(status);
+    if (CLOUD_GATEWAY_URLS.length > 1 && (isGatewayError || isNetworkError)) {
+      const reason = isGatewayError ? `HTTP ${status}` : 'network unreachable';
+      const switched = switchGateway(reason);
+      const gatewayRetried = config.__apipawGatewayRetry || 0;
+      // 幂等请求才重放；POST 不重放（避免重复下单 / 重复计费）
+      const replayable = method === 'get' || method === 'head';
+      if (switched && replayable && gatewayRetried < MAX_GET_RETRIES) {
+        config.__apipawGatewayRetry = gatewayRetried + 1;
+        config.baseURL = CLOUD_GATEWAY_URLS[activeGatewayIndex];
+        return cloudApi(config);
+      }
     }
 
     if (method !== 'get' || (!isNetworkError && !isServerError) || retried >= MAX_GET_RETRIES) {
@@ -2785,5 +2913,157 @@ export const fetchOwnerDeposits = async (status: string = ''): Promise<{
   const res = await cloudApi.get('/api/v1/owner/deposit/list', {
     params: status ? { status } : undefined,
   });
+  return res.data;
+};
+
+/* ---------------------------------------------------------------------------
+ * 阶段二十 P0/P2 · Pipeline Mesh 异构算力网格 + 多网关容灾联邦
+ * ------------------------------------------------------------------------- */
+
+/** 一个节点在集群里承载的层区间。 */
+export interface MeshLayerSplit {
+  node_id?: string;
+  label?: string;
+  layer_start?: number;
+  layer_end?: number;
+  layers?: number;
+  vram_gb?: number;
+  rtt_ms?: number;
+  share?: number;
+}
+
+/** 已登记的 Pipeline Mesh 合体集群。 */
+export interface MeshClusterRow {
+  cluster_id: string;
+  leader_node_id: string;
+  member_node_ids: string[];
+  cluster_vram_gb: number;
+  mesh_shards: number;
+  mesh_rtt_ms: number;
+  layer_splits: MeshLayerSplit[];
+  mode: string;
+  status: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** 注册表里**实时组网**的节点。 */
+export interface MeshLiveNode {
+  node_id: string;
+  node_name: string;
+  alive: boolean;
+  mesh_shards: number;
+  cluster_vram_gb: number;
+  mesh_rtt_ms: number;
+  mesh_peers_count: number;
+  layer_splits: MeshLayerSplit[];
+  agent_version: string;
+}
+
+/** 公开：局域网 Pipeline Mesh 合体集群拓扑。 */
+export interface MeshTopologyResponse {
+  status: string;
+  protocol_version: string;
+  registered_cluster_count: number;
+  live_mesh_node_count: number;
+  registered_member_count: number;
+  aggregate_cluster_vram_gb: number;
+  live_cluster_vram_gb: number;
+  clusters: MeshClusterRow[];
+  live_nodes: MeshLiveNode[];
+  generated_at: number;
+  note: string;
+}
+
+/** 白皮书 v3.0 五大承诺的实时自检条目。 */
+export interface CompliancePillar {
+  id: string;
+  title: string;
+  compliant: boolean;
+  evidence: Record<string, unknown>;
+  note: string;
+}
+
+/** 公开：多网关容灾联邦 + 白皮书 v3.0 合规大盘。 */
+export interface FederationStatusResponse {
+  status: string;
+  protocol_version: string;
+  gateway_node_id: string;
+  generated_at: number;
+  federation: {
+    gateways: {
+      url: string;
+      healthy: boolean;
+      http_status?: number;
+      rtt_ms?: number;
+      error?: string;
+      note?: string;
+    }[];
+    gateway_count: number;
+    healthy_count: number;
+    all_healthy: boolean;
+    failover_ready: boolean;
+  };
+  state_root: StateRootResponse;
+  poi: {
+    verification_rate: number;
+    verified_inferences: number;
+    total_usage_rows: number;
+    spot_check_rate: number;
+    slashed_usage_rows: number;
+  };
+  dao: {
+    governance_threshold: number;
+    locked_model_count: number;
+  };
+  mesh: {
+    registered_cluster_count: number;
+    live_mesh_node_count: number;
+    aggregate_cluster_vram_gb: number;
+  };
+  compliance: {
+    total: number;
+    compliant: number;
+    rate: number;
+    pillars: CompliancePillar[];
+  };
+  note: string;
+}
+
+/** 公开：Mesh 拓扑大盘。 */
+export const fetchMeshTopology = async (): Promise<MeshTopologyResponse> => {
+  const res = await cloudApi.get('/api/v1/network/mesh-topology');
+  return res.data;
+};
+
+/** 公开：联邦状态 + 白皮书 v3.0 合规大盘。 */
+export const fetchFederationStatus = async (): Promise<FederationStatusResponse> => {
+  const res = await cloudApi.get('/api/v1/network/federation-status');
+  return res.data;
+};
+
+/**
+ * OWNER：组建 / 更新一个局域网 Pipeline Mesh 合体集群。
+ *
+ * 业主在控制台点「组建局域网 Pipeline Mesh 合体集群」后调用此端点，
+ * 集群快照落库 ⇒ 公开拓扑大盘立即可见。
+ */
+export const registerMeshCluster = async (payload: {
+  cluster_id?: string;
+  leader_node_id?: string;
+  member_node_ids?: string[];
+  cluster_vram_gb?: number;
+  mesh_shards?: number;
+  mesh_rtt_ms?: number;
+  layer_splits?: MeshLayerSplit[];
+  mode?: string;
+}): Promise<{
+  status: string;
+  ok: boolean;
+  cluster: { ok: boolean; cluster_id: string; updated_at: number; member_node_ids?: string[] };
+  topology: MeshTopologyResponse;
+  message: string;
+}> => {
+  const res = await cloudApi.post('/api/v1/owner/mesh/register-cluster', payload);
   return res.data;
 };

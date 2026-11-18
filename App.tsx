@@ -57,6 +57,8 @@ import ModerationBlocksCard from './src/components/ModerationBlocksCard';
 import PoiConsensusCard from './src/components/PoiConsensusCard';
 // 阶段十九 P0-P2：Model DAO 治理锁 + PAWMODEL 导入 + B2B 企业发票 / USDT 储值
 import DaoAndEnterpriseCard from './src/components/DaoAndEnterpriseCard';
+// 阶段二十 P0/P2：Pipeline Mesh 异构算力网格 + 多网关容灾联邦 + 白皮书 v3.0 合规大盘
+import MeshAndFederationCard from './src/components/MeshAndFederationCard';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
 import { colors, fontSize, radius, spacing } from './src/theme';
 import { injectWebTheme } from './src/ui/webTheme';
@@ -510,6 +512,8 @@ export default function App() {
             <PoiConsensusCard />
             {/* 阶段十九 P0-P2：Model DAO 治理锁 + B2B 企业发票 / USDT 储值申报*/}
             <DaoAndEnterpriseCard />
+            {/* 阶段二十 P0/P2：Pipeline Mesh 异构算力网格 + 多网关容灾联邦 + 白皮书 v3.0 合规大盘*/}
+            <MeshAndFederationCard />
             {/* 阶段十 P2：全网算力节点贡献排行榜（公开数据）*/}
             <NodeLeaderboardCard />
             <AnalyticsCard />
@@ -695,6 +699,8 @@ export default function App() {
                 <PoiConsensusCard owner />
                 {/* 阶段十九 P0-P2：Model DAO 治理台 + PAWMODEL 导入 + USDT 储值审批台（OWNER）*/}
                 <DaoAndEnterpriseCard owner />
+                {/* 阶段二十 P0/P2：Mesh 合体集群组建演练（OWNER）+ 联邦合规大盘 */}
+                <MeshAndFederationCard owner />
                 <PricingApprovalCard />
                 {/* 阶段九 P2/P3：充值卡密签发 + 提现审批台（OWNER）*/}
                 <VoucherIssueCard />
