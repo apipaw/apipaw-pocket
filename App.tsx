@@ -53,6 +53,8 @@ import ApiKeyPolicyCard from './src/components/ApiKeyPolicyCard';
 import SmartAlertCard from './src/components/SmartAlertCard';
 // 阶段十七 P2：网关内容安全拦截器（业主视角）
 import ModerationBlocksCard from './src/components/ModerationBlocksCard';
+// 阶段十八 P0-P2：PoI 推理证明 + 默克尔状态根（浏览器端可本地复验）
+import PoiConsensusCard from './src/components/PoiConsensusCard';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
 import { colors, fontSize, radius, spacing } from './src/theme';
 import { injectWebTheme } from './src/ui/webTheme';
@@ -502,6 +504,8 @@ export default function App() {
             <BuyerLedgerCard />
             {/* 阶段九 P0：全网实时推理与三方分账公示（公开数据）*/}
             <LiveSettlementFeed />
+            {/* 阶段十八 P0-P2：PoI 推理证明 + 默克尔状态根（公开数据 + 本地验真）*/}
+            <PoiConsensusCard />
             {/* 阶段十 P2：全网算力节点贡献排行榜（公开数据）*/}
             <NodeLeaderboardCard />
             <AnalyticsCard />
@@ -683,6 +687,8 @@ export default function App() {
                 <NodeGovernanceCard />
                 {/* 阶段十七 P2：网关内容安全拦截器看板（命中即 400，零扣费）*/}
                 <ModerationBlocksCard />
+                {/* 阶段十八 P0-P2：PoI 验真看板 + 模拟欺诈演练（Slashing 扣罚）*/}
+                <PoiConsensusCard owner />
                 <PricingApprovalCard />
                 {/* 阶段九 P2/P3：充值卡密签发 + 提现审批台（OWNER）*/}
                 <VoucherIssueCard />

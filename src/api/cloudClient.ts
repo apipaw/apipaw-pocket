@@ -2487,3 +2487,125 @@ export const fetchOwnerModerationBlocks = async (
   const res = await cloudApi.get('/api/v1/owner/moderation/blocks', { params: { limit } });
   return res.data;
 };
+
+/* ============ 阶段十八 P0-P2 · PoI 推理证明 + 默克尔状态根（公开 + 业主） ============ */
+
+/** 一条 PoI 审计流水（抽检 / 守卫触发 / 业主手动复核） */
+export interface PoiAuditRow {
+  id: number;
+  request_id: string;
+  node_id: string;
+  model_id: string;
+  audit_type: string;
+  verdict: string;
+  reason: string;
+  reported_tokens: number;
+  verified_tokens: number;
+  entropy_score: number;
+  similarity_score: number;
+  slash_penalty: number;
+  created_at: number;
+}
+
+/** 全网 PoI 汇总（公开脱敏：无任何账户信息） */
+export interface PoiSummaryResponse {
+  verified_inferences: number;
+  total_usage_rows: number;
+  slashed_usage_rows: number;
+  spot_check_hits: number;
+  guard_triggered: number;
+  slashing_blocked: number;
+  spot_check_rate: number;
+  historical_records: Array<{
+    request_id: string;
+    node_id: string;
+    model_id: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    poi_status: string;
+    output_sha256: string;
+    receipt_sig: string;
+  }>;
+  recent_audits: PoiAuditRow[];
+  generated_at: number;
+}
+
+/** 分布式状态机默克尔状态根（公开） */
+export interface StateRootResponse {
+  state_root: string;
+  ledger_root: string;
+  revenue_root: string;
+  ledger_leaf_count: number;
+  revenue_leaf_count: number;
+  timestamp: number;
+  algorithm?: string;
+}
+
+/** 默克尔包含性证明（浏览器端可本地重算根并自证） */
+export interface MerkleProofResponse {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  ledger?: string;
+  leaf_index?: number;
+  leaf_count?: number;
+  leaf_hash?: string;
+  leaf_canonical?: string;
+  siblings?: string[];
+  /** 每层兄弟的方位（"L" 在左 / "R" 在右）—— 缺了就按旧口径恒在右处理 */
+  sibling_sides?: string[];
+  root_hash?: string;
+  verified?: boolean;
+  scoped?: boolean;
+  ledger_root?: string;
+  revenue_root?: string;
+  state_root?: string;
+}
+
+/** 全网 PoI 汇总（公开） */
+export const fetchPoiSummary = async (limit: number = 20): Promise<PoiSummaryResponse> => {
+  const res = await cloudApi.get('/api/v1/network/poi-summary', { params: { limit } });
+  return res.data;
+};
+
+/** 默克尔状态根（公开） */
+export const fetchStateRoot = async (): Promise<StateRootResponse> => {
+  const res = await cloudApi.get('/api/v1/network/state-root');
+  return res.data;
+};
+
+/**
+ * 默克尔包含性证明。
+ *
+ * 带买家 API Key 时，网关会返回**该账户最后一行**账本在**全网默克尔树**里的
+ * 兄弟链 ⇒ 本地重算出的根必然等于公示的 ``ledger_root``。
+ */
+export const fetchMerkleProof = async (
+  ledger: 'balance' | 'revenue' = 'balance',
+  leafIndex?: number,
+): Promise<MerkleProofResponse> => {
+  const params: Record<string, number | string> = { ledger };
+  if (leafIndex !== undefined) params.leaf_index = leafIndex;
+  const res = await cloudApi.get('/api/v1/network/merkle-proof', { params });
+  return res.data;
+};
+
+/** 业主主动验真 / 模拟欺诈演练（OWNER） */
+export const runOwnerPoiAudit = async (body: {
+  request_id?: string;
+  simulate_fraud_type?: 'token_inflation' | 'low_entropy' | 'bad_signature';
+  node_id?: string;
+  model_id?: string;
+}): Promise<{
+  ok: boolean;
+  message?: string;
+  fraud_type?: string;
+  node_id?: string;
+  request_id?: string;
+  reason?: string;
+  score?: number;
+  penalty?: number;
+}> => {
+  const res = await cloudApi.post('/api/v1/owner/poi/audit', body);
+  return res.data;
+};

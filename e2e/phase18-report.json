@@ -1,0 +1,163 @@
+{
+  "stamp": "P18E2EMWLD7LQX",
+  "buyerHandle": "acct_a23a1f93371a96bf",
+  "buyerKeyMasked": "paw-sk-****",
+  "state_root": "936bc82c6295f82040d2a42b6d09ed1740c23bc270b94ceeb84a561b9e888f16",
+  "ledger_root": "01134faa3c0179719f53d2fc178c4834a69bdb519258c5855b2b74cf46e6e957",
+  "revenue_root": "a135b411c4a65f4d566e7fb36667c72d7678ac426008f804ca8454370e9a9c2f",
+  "ledger_leaf_count": 61,
+  "proof_public_ok": true,
+  "passed": 29,
+  "total": 29,
+  "soft": 0,
+  "results": [
+    {
+      "name": "①a 签发全新买家账户",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "①b 领取新手体验金",
+      "pass": true,
+      "detail": "HTTP 200 balance=$0.5"
+    },
+    {
+      "name": "①c 一次真实推理（生成账本流水行）",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "②a GET /network/state-root ⇒ 状态根可读",
+      "pass": true,
+      "detail": "HTTP 200 state_root=936bc82c6295f820…"
+    },
+    {
+      "name": "②b 账本根 / 分账根均为 64 位摘要",
+      "pass": true,
+      "detail": "ledger=01134faa3c01… revenue=a135b411c4a6…"
+    },
+    {
+      "name": "②c 账本叶子数 > 0",
+      "pass": true,
+      "detail": "ledger=61 revenue=3"
+    },
+    {
+      "name": "②d 状态根派生式本地复算一致",
+      "pass": true,
+      "detail": "computed=936bc82c6295f820…"
+    },
+    {
+      "name": "②e GET /network/merkle-proof（公开口径）可取证明",
+      "pass": true,
+      "detail": "HTTP 200 ok=true"
+    },
+    {
+      "name": "②f 兄弟链非空",
+      "pass": true,
+      "detail": "siblings=6"
+    },
+    {
+      "name": "②g 本地重算根 == 证明根",
+      "pass": true,
+      "detail": "computed=01134faa3c017971…"
+    },
+    {
+      "name": "②h 本地重算根 == 公示 ledger_root（默克尔自洽）",
+      "pass": true,
+      "detail": "01134faa3c017971…"
+    },
+    {
+      "name": "②i 右孩子叶子（#60）证明也能重算回全网 ledger_root",
+      "pass": true,
+      "detail": "computed=01134faa3c017971… sides=RRLLLL"
+    },
+    {
+      "name": "③a 带买家 Key ⇒ 返回本人账本行的证明",
+      "pass": true,
+      "detail": "HTTP 200 scoped=true leaf_index=60"
+    },
+    {
+      "name": "③b 本人行的证明也能重算回全网 ledger_root",
+      "pass": true,
+      "detail": "01134faa3c017971…"
+    },
+    {
+      "name": "③c GET /network/poi-summary ⇒ 抽检率 5%",
+      "pass": true,
+      "detail": "HTTP 200 verified=3 spot=0"
+    },
+    {
+      "name": "③d PoI 汇总含推理流水计数",
+      "pass": true,
+      "detail": "total=30"
+    },
+    {
+      "name": "③e 业主模拟欺诈演练 ⇒ SLASHED",
+      "pass": true,
+      "detail": "HTTP 200 node=p18_fraud_test_node score=0.8499999999999999"
+    },
+    {
+      "name": "③f 买家 Key 调业主端点 ⇒ 被拒",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "④a 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "④b 🔗 PoI 共识看板已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④c 状态根读数已渲染",
+      "pass": true,
+      "detail": "936bc82c6295f82040d2a42b6d09ed1740c23bc2"
+    },
+    {
+      "name": "④d PoI 统计读数可读",
+      "pass": true,
+      "detail": "已验真=3"
+    },
+    {
+      "name": "④f 浏览器端默克尔验真通过",
+      "pass": true,
+      "detail": "✓ 默克尔证明本地复验通过 叶子 #60 · 兄弟链 6 层 本地重算根 01134faa3c…e6e957 == 证明根 ✓ 证明根 01134faa3c…e6e957 == 全"
+    },
+    {
+      "name": "④i 业主侧「模拟欺诈演练」按钮已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "④k 演练结果已回显",
+      "pass": true,
+      "detail": "演练完成：token_inflation_fraud：模拟上报 token 远超文本可推出上限 → 节点 p18_fraud_test_node 信用分 0.800"
+    },
+    {
+      "name": "console 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-23330ed7fc19aba81af9e5f05e65b8a3.js → content-encoding=gzip content-length=452273"
+    },
+    {
+      "name": "console 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "441.7KB"
+    },
+    {
+      "name": "pocket 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-23330ed7fc19aba81af9e5f05e65b8a3.js → content-encoding=gzip content-length=452273"
+    },
+    {
+      "name": "pocket 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "441.7KB"
+    }
+  ],
+  "pageErrors": [
+    "console.error: Failed to load resource: the server responded with a status of 403 ()"
+  ]
+}
