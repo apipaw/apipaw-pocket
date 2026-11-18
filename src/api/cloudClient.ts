@@ -2609,3 +2609,181 @@ export const runOwnerPoiAudit = async (body: {
   const res = await cloudApi.post('/api/v1/owner/poi/audit', body);
   return res.data;
 };
+
+
+// ===========================================================================
+// 阶段十九 P0-P2 · PAWMODEL 哈希锁 / Model DAO / SLA 金牌池 / B2B 发票 / USDT 储值
+// ===========================================================================
+
+/** 清单指纹（公开口径：不含 System Prompt 原文） */
+export interface ModelManifestRow {
+  model_id: string;
+  display_name: string;
+  tier: string;
+  prompt_price_per_1k: number;
+  completion_price_per_1k: number;
+  royalty_rate: number;
+  author_wallet: string;
+  system_prompt_sha256: string;
+  manifest_sha256: string;
+  created_at: number;
+}
+
+/** 治理提案（公开台账） */
+export interface DaoProposalRow {
+  proposal_id: string;
+  title: string;
+  action_type: string;
+  target_id: string;
+  payload_json: string;
+  proposer: string;
+  yes_weight: number;
+  no_weight: number;
+  total_eligible_weight: number;
+  status: string;
+  execution_hash: string;
+  created_at: number;
+  executed_at: number;
+}
+
+/** USDT 储值申报行 */
+export interface CryptoDepositRow {
+  id: number;
+  tx_hash: string;
+  account_handle: string;
+  network: string;
+  amount_usd: number;
+  status: string;
+  note: string;
+  created_at: number;
+  decided_at: number;
+}
+
+/** 公开：全网模型清单指纹 */
+export const fetchModelManifests = async (): Promise<{
+  count: number;
+  manifests: ModelManifestRow[];
+}> => {
+  const res = await cloudApi.get('/api/v1/network/model-manifests');
+  return res.data;
+};
+
+/** 公开：治理提案台账 */
+export const fetchDaoProposals = async (status: string = ''): Promise<{
+  count: number;
+  threshold: number;
+  action_types: string[];
+  proposals: DaoProposalRow[];
+}> => {
+  const res = await cloudApi.get('/api/v1/network/dao/proposals', {
+    params: status ? { status } : undefined,
+  });
+  return res.data;
+};
+
+/** 公开：企业级 SLA 金牌池现状 */
+export const fetchSlaPool = async (): Promise<{
+  min_reliability: number;
+  max_gpu_temp_c: number;
+  gold_count: number;
+  gold_nodes: { node_id: string; reliability_score: number; gpu_temp_c: number | null; alive: boolean }[];
+}> => {
+  const res = await cloudApi.get('/api/v1/network/sla-pool');
+  return res.data;
+};
+
+/** 购买者：B2B 发票 JSON（含默克尔 State Root 存证） */
+export const fetchInvoiceJson = async (): Promise<{
+  ok: boolean;
+  account_handle: string;
+  total_recharged_usd: number;
+  total_spent_usd: number;
+  balance_usd: number;
+  call_count: number;
+  reconciled: boolean;
+  per_model?: { model_id: string; calls: number; cost_usd: number }[];
+  attestation?: { state_root: string; ledger_root: string; revenue_root: string };
+}> => {
+  const res = await cloudApi.get('/api/v1/user/invoice', { params: { format: 'json' } });
+  return res.data;
+};
+
+/** 购买者：发票原文（csv / html） */
+export const fetchInvoiceText = async (format: 'csv' | 'html'): Promise<string> => {
+  const res = await cloudApi.get('/api/v1/user/invoice', {
+    params: { format },
+    responseType: 'text',
+  });
+  return typeof res.data === 'string' ? res.data : String(res.data ?? '');
+};
+
+/** OWNER：导入 PAWMODEL.md 模型包（带两个哈希锁） */
+export const importPawmodel = async (content: string): Promise<{
+  status: string;
+  manifest: { model_id: string; manifest_sha256: string; system_prompt_sha256: string };
+  result: { ok?: boolean; error?: string };
+}> => {
+  const res = await cloudApi.post('/api/v1/owner/models/import-pawmodel', { content });
+  return res.data;
+};
+
+/** OWNER：发起治理提案 */
+export const daoPropose = async (body: {
+  title: string;
+  action_type: string;
+  target_id: string;
+  payload?: Record<string, unknown>;
+}): Promise<{ status: string; proposal_id: string; total_eligible_weight: number }> => {
+  const res = await cloudApi.post('/api/v1/owner/dao/propose', body);
+  return res.data;
+};
+
+/** OWNER：投票（赎成票重占比 > 66% 即自动执行） */
+export const daoVote = async (proposal_id: string, approve: boolean): Promise<{
+  status: string;
+  executed: boolean;
+  yes_ratio: number;
+  execution_hash: string;
+}> => {
+  const res = await cloudApi.post('/api/v1/owner/dao/vote', { proposal_id, approve });
+  return res.data;
+};
+
+/** 购买者：申报 USDT 储值（只登记，不加钱） */
+export const declareCryptoDeposit = async (body: {
+  tx_hash: string;
+  network: string;
+  amount_usd: number;
+}): Promise<{ status: string; deposit_id: number }> => {
+  const res = await cloudApi.post('/api/v1/user/deposit/declare', body);
+  return res.data;
+};
+
+/** OWNER：审批 / 驳回 USDT 申报（批准才入账） */
+export const decideCryptoDeposit = async (
+  depositId: number,
+  approve: boolean,
+): Promise<{ status: string; deposit_id: number; amount_usd: number; duplicate: boolean }> => {
+  const res = await cloudApi.post(`/api/v1/owner/deposit/${depositId}/decide`, { approve });
+  return res.data;
+};
+
+/** 购买者：自查自己的申报流水 */
+export const fetchMyDeposits = async (): Promise<{
+  count: number;
+  deposits: CryptoDepositRow[];
+}> => {
+  const res = await cloudApi.get('/api/v1/user/deposit/list');
+  return res.data;
+};
+
+/** OWNER：审批台的申报列表 */
+export const fetchOwnerDeposits = async (status: string = ''): Promise<{
+  count: number;
+  deposits: CryptoDepositRow[];
+}> => {
+  const res = await cloudApi.get('/api/v1/owner/deposit/list', {
+    params: status ? { status } : undefined,
+  });
+  return res.data;
+};

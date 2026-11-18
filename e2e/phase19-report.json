@@ -1,0 +1,237 @@
+{
+  "stamp": "P19E2EMWLLJYTN",
+  "buyerHandle": "acct_4f06b3af99f50c52",
+  "buyerKeyMasked": "paw-sk-****",
+  "deposit_id": 2,
+  "manifest_count": 6,
+  "imported_model": "p19-e2e-imported-model",
+  "tx_hash": "0x7745de76bf65a7bc2ccc16b8f813d8afba74f706279d529ad5afc1ceb521084b",
+  "passed": 44,
+  "total": 44,
+  "soft": 0,
+  "results": [
+    {
+      "name": "①a 签发全新买家账户",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "①b 领取新手体验金",
+      "pass": true,
+      "detail": "HTTP 200 balance=$0.5"
+    },
+    {
+      "name": "②a GET /network/model-manifests ⇒ 清单可读",
+      "pass": true,
+      "detail": "HTTP 200 count=6"
+    },
+    {
+      "name": "②b 每个模型都带两个 64 位哈希锁",
+      "pass": true,
+      "detail": "6/6"
+    },
+    {
+      "name": "②c 清单含 model_id / display_name",
+      "pass": true,
+      "detail": "qwen-2.5-72b"
+    },
+    {
+      "name": "②d 清单哈希可由公开字段独立复算",
+      "pass": true,
+      "detail": "computed=c20f4b1791befa61…"
+    },
+    {
+      "name": "③a 一次真实推理",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "③b 响应头 X-APIPaw-Manifest-Hash 存在",
+      "pass": true,
+      "detail": "af566f65b96e2fda…"
+    },
+    {
+      "name": "④a GET /network/sla-pool ⇒ 金牌池门槛 0.95",
+      "pass": true,
+      "detail": "HTTP 200 min_rel=0.95 gold=6"
+    },
+    {
+      "name": "④b 企业档请求返回 SLA 路由头",
+      "pass": true,
+      "detail": "X-APIPaw-SLA-Routed=enterprise_simulated"
+    },
+    {
+      "name": "⑤a OWNER 上架测试模型",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "⑤b OWNER 导入 PAWMODEL ⇒ 返回清单哈希",
+      "pass": true,
+      "detail": "HTTP 200 09f5e818b31ff2c7…"
+    },
+    {
+      "name": "⑤c 导入后的模型出现在公开清单且哈希一致",
+      "pass": true,
+      "detail": "09f5e818b31ff2c7"
+    },
+    {
+      "name": "⑤d 买家调导入端点 ⇒ 被拒",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "⑥a GET /network/dao/proposals ⇒ 阈值 0.66",
+      "pass": true,
+      "detail": "HTTP 200 threshold=0.66 count=0"
+    },
+    {
+      "name": "⑥b 买家调业主提案端点 ⇒ 被拒",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "⑥c 业主发起提案",
+      "pass": true,
+      "detail": "HTTP 200 dao-d27645fab1c493ee"
+    },
+    {
+      "name": "⑥d 业主投票返回赞成率",
+      "pass": true,
+      "detail": "HTTP 200 ratio=1 executed=true"
+    },
+    {
+      "name": "⑥e 已执行提案带不可变执行哈希",
+      "pass": true,
+      "detail": "31060aadf54d2e14"
+    },
+    {
+      "name": "⑥f 治理执行后清单哈希同步更新（哈希锁跟随）",
+      "pass": true,
+      "detail": "09f5e818b31f… → e1eedb7cf8b5…"
+    },
+    {
+      "name": "⑦a 发票 JSON 含充值/消费/余额口径",
+      "pass": true,
+      "detail": "HTTP 200 recharge=$0.5 balance=$0.5"
+    },
+    {
+      "name": "⑦b 发票带默克尔 State Root 存证",
+      "pass": true,
+      "detail": "9ef3fecd9f932c26"
+    },
+    {
+      "name": "⑦c 发票 CSV 可下载",
+      "pass": true,
+      "detail": "HTTP 200 len=828"
+    },
+    {
+      "name": "⑦d 发票 HTML 可打印",
+      "pass": true,
+      "detail": "HTTP 200 len=2671"
+    },
+    {
+      "name": "⑦e 无凭证取发票 ⇒ 401",
+      "pass": true,
+      "detail": "HTTP 401"
+    },
+    {
+      "name": "⑧a 买家申报 USDT 储值成功",
+      "pass": true,
+      "detail": "HTTP 200 id=2"
+    },
+    {
+      "name": "⑧b 同一 tx_hash 重复申报 ⇒ 409",
+      "pass": true,
+      "detail": "HTTP 409"
+    },
+    {
+      "name": "⑧c 非法 tx_hash ⇒ 400",
+      "pass": true,
+      "detail": "HTTP 400"
+    },
+    {
+      "name": "⑧d 买家调审批端点 ⇒ 被拒",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "⑧e 业主批准 ⇒ 申报入账",
+      "pass": true,
+      "detail": "HTTP 200 status=APPROVED $12.5"
+    },
+    {
+      "name": "④a 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "⑨a 🏛️ DAO / 企业卡已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑨b 发票 KPI 已渲染",
+      "pass": true,
+      "detail": "$13.000000 累计充值 $0.000000 推理消费 $13.000000 当前余额"
+    },
+    {
+      "name": "⑨c 发票 State Root 已渲染",
+      "pass": true,
+      "detail": "root abef5bf5bb…057431"
+    },
+    {
+      "name": "⑨d 模型清单指纹行已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑨e CSV / HTML 导出按钮已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑨f USDT 申报入口已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑩c 业主侧 PAWMODEL 导入框已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑩d 业主侧提案入口已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑩e 业主侧治理卡已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "console 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-7617cd11cc4187e9af81b4e09dd9d556.js → content-encoding=gzip content-length=332398"
+    },
+    {
+      "name": "console 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "324.6KB"
+    },
+    {
+      "name": "pocket 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-7617cd11cc4187e9af81b4e09dd9d556.js → content-encoding=gzip content-length=332398"
+    },
+    {
+      "name": "pocket 压缩后体积 < 450KB",
+      "pass": true,
+      "detail": "324.6KB"
+    }
+  ],
+  "pageErrors": [
+    "console.error: Failed to load resource: the server responded with a status of 403 ()"
+  ]
+}

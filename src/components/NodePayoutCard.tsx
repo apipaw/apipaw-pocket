@@ -15,6 +15,7 @@ import {
   submitNodeWithdrawal,
 } from '../api/cloudClient';
 import { getInjectedProvider } from '../wallet/providers';
+import { encodeErc20Transfer, toUnits } from '../wallet/eth';
 import { colors, fontSize, radius, spacing } from '../theme';
 
 /**
@@ -29,10 +30,45 @@ import { colors, fontSize, radius, spacing } from '../theme';
  *    签名发生在 MetaMask 里，私钥从不进过本应用。
  */
 
-/** ERC-20 `transfer(address,uint256)` —— 只声明用得到的那一个方法 */
-const ERC20_ABI = ['function transfer(address to, uint256 amount) returns (bool)'];
-
+/** ERC-20 `transfer(address,uint256)` —— calldata 由 `encodeErc20Transfer` 本地拼 */
 const PAW_DECIMALS = 18;
+
+/** 取钱包当前账户（钱包未显式带出登录地址时的兜底） */
+const firstInjectedAccount = async (provider: {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+}): Promise<string> => {
+  const accounts = await provider.request({ method: 'eth_accounts' });
+  const list = Array.isArray(accounts) ? accounts : [];
+  const first = String(list[0] || '');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(first)) {
+    throw new Error('钱包未返回可用账户，请先解锁钱包扩展');
+  }
+  return first;
+};
+
+/** 轮询交易回执（最多约 60 秒；拿不到就回退用交易哈希记账） */
+const waitForReceipt = async (
+  provider: { request(args: { method: string; params?: unknown[] }): Promise<unknown> },
+  txHash: string,
+): Promise<string | null> => {
+  for (let i = 0; i < 15; i += 1) {
+    try {
+      const receipt = await provider.request({
+        method: 'eth_getTransactionReceipt',
+        params: [txHash],
+      });
+      if (receipt && typeof receipt === 'object') {
+        return txHash;
+      }
+    } catch (e: any) {
+      // 钱包/节点不支持该方法（EIP-1193 4200）—— 直接放弃等待，用哈希记账
+      if (e?.code === 4200) return null;
+      /* 节点还没索引到这笔交易 —— 继续等 */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  return null;
+};
 
 const NodePayoutCard: React.FC = () => {
   const { sessionToken, sessionWallet } = usePawStore();
@@ -108,18 +144,25 @@ const NodePayoutCard: React.FC = () => {
       }
       setBusy(true);
       try {
-        const { BrowserProvider, Contract, parseUnits } = await import('ethers');
-        const browserProvider = new BrowserProvider(provider as never);
-        const signer = await browserProvider.getSigner(sessionWallet || undefined);
-        const contract = new Contract(chainInfo.token, ERC20_ABI, signer);
-        const tx = await contract.transfer(
+        // 用钱包原生 `eth_sendTransaction` 广播 ERC-20 transfer：
+        // calldata 由本地拼（transfer 选择器 + 两个 32 字节槽位），
+        // 签名与广播都在业主钱包里完成，云端不托管私钥。
+        const from = sessionWallet || (await firstInjectedAccount(provider));
+        const data = encodeErc20Transfer(
           chainInfo.recipient,
-          parseUnits(String(amountPaw), PAW_DECIMALS),
+          toUnits(String(amountPaw), PAW_DECIMALS),
         );
-        const receipt = await tx.wait();
+        const txHash = await provider.request({
+          method: 'eth_sendTransaction',
+          params: [{ from, to: chainInfo.token, value: '0x0', data }],
+        });
+        if (typeof txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+          throw new Error('钱包未返回合法的交易哈希');
+        }
+        const receipt = await waitForReceipt(provider, txHash);
         const { broadcastNodeWithdrawal } = await import('../api/cloudClient');
-        await broadcastNodeWithdrawal(withdrawalId, receipt.hash);
-        setSuccess(`🔗 链上广播成功（tx ${receipt.hash.slice(0, 10)}…），云端已记账`);
+        await broadcastNodeWithdrawal(withdrawalId, receipt || txHash);
+        setSuccess(`🔗 链上广播成功（tx ${txHash.slice(0, 10)}…），云端已记账`);
         await load();
       } catch (e: any) {
         setError(`链上广播失败：${(e as Error)?.message || String(e)}`);

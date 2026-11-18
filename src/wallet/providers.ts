@@ -1,6 +1,7 @@
 import { Linking, Platform } from 'react-native';
 import * as ExpoLinking from 'expo-linking';
-import { BrowserProvider, getAddress } from 'ethers';
+import { getAddress } from 'ethers/address';
+import { utf8ToHex } from './eth';
 import {
   ConnectedWallet,
   Eip1193Provider,
@@ -91,9 +92,17 @@ export const injectedAdapter: WalletAdapter = {
     if (!provider) {
       throw new WalletError('钱包扩展已不可用（请刷新页面后重试）');
     }
-    const browserProvider = new BrowserProvider(provider as never);
-    const signer = await browserProvider.getSigner(address);
-    return signer.signMessage(message);
+    // 直发 EIP-1193 `personal_sign` —— 与 ethers BrowserProvider 的
+    // `signer.signMessage` 走的是同一条 JSON-RPC（参数序 [message, address]），
+    // 但省掉整棵 ethers/providers 依赖树（其中会牵进 ENS 归一化表）。
+    const signature = await provider.request({
+      method: 'personal_sign',
+      params: [utf8ToHex(message), address],
+    });
+    if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
+      throw new WalletError('钱包返回的签名长度非法');
+    }
+    return signature;
   },
 };
 

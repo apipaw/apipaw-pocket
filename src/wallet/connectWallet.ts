@@ -1,4 +1,4 @@
-import { getAddress, verifyMessage } from 'ethers';
+import { recoverMessageAddress } from './eth';
 import { fetchAuthNonce, verifyWalletSignature } from './api';
 import { pickAdapter } from './providers';
 import { ALLOWED_CHAIN_IDS, WalletAdapter, WalletError, WalletSession } from './types';
@@ -47,7 +47,7 @@ export const connectWallet = async (
   // 客户端自检：签名必须能恢复出同一个地址（服务端还会再验一次）
   let recovered = '';
   try {
-    recovered = getAddress(verifyMessage(challenge.message, signature));
+    recovered = recoverMessageAddress(challenge.message, signature);
   } catch {
     throw new WalletError('钱包返回的签名无法解析，请重试');
   }

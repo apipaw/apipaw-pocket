@@ -55,6 +55,8 @@ import SmartAlertCard from './src/components/SmartAlertCard';
 import ModerationBlocksCard from './src/components/ModerationBlocksCard';
 // 阶段十八 P0-P2：PoI 推理证明 + 默克尔状态根（浏览器端可本地复验）
 import PoiConsensusCard from './src/components/PoiConsensusCard';
+// 阶段十九 P0-P2：Model DAO 治理锁 + PAWMODEL 导入 + B2B 企业发票 / USDT 储值
+import DaoAndEnterpriseCard from './src/components/DaoAndEnterpriseCard';
 import { StatTile, StatusDot, Surface, Toast, Toggle } from './src/components/ui';
 import { colors, fontSize, radius, spacing } from './src/theme';
 import { injectWebTheme } from './src/ui/webTheme';
@@ -506,6 +508,8 @@ export default function App() {
             <LiveSettlementFeed />
             {/* 阶段十八 P0-P2：PoI 推理证明 + 默克尔状态根（公开数据 + 本地验真）*/}
             <PoiConsensusCard />
+            {/* 阶段十九 P0-P2：Model DAO 治理锁 + B2B 企业发票 / USDT 储值申报*/}
+            <DaoAndEnterpriseCard />
             {/* 阶段十 P2：全网算力节点贡献排行榜（公开数据）*/}
             <NodeLeaderboardCard />
             <AnalyticsCard />
@@ -689,6 +693,8 @@ export default function App() {
                 <ModerationBlocksCard />
                 {/* 阶段十八 P0-P2：PoI 验真看板 + 模拟欺诈演练（Slashing 扣罚）*/}
                 <PoiConsensusCard owner />
+                {/* 阶段十九 P0-P2：Model DAO 治理台 + PAWMODEL 导入 + USDT 储值审批台（OWNER）*/}
+                <DaoAndEnterpriseCard owner />
                 <PricingApprovalCard />
                 {/* 阶段九 P2/P3：充值卡密签发 + 提现审批台（OWNER）*/}
                 <VoucherIssueCard />
