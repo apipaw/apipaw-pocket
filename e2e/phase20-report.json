@@ -1,0 +1,155 @@
+{
+  "stamp": "P20E2EMWM64640",
+  "buyerHandle": "acct_f73ca82345855f30",
+  "buyerKeyMasked": "paw-sk-****",
+  "cluster_id": "p20-e2e-mwm64640",
+  "compliance_rate": 1,
+  "passed": 28,
+  "total": 28,
+  "soft": 0,
+  "results": [
+    {
+      "name": "①a 签发全新买家账户",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "②a GET /network/mesh-topology ⇒ 公开拓扑可读",
+      "pass": true,
+      "detail": "HTTP 200 clusters=0"
+    },
+    {
+      "name": "②b 拓扑自带联邦协议版本 v3.x",
+      "pass": true,
+      "detail": "v3.0.0"
+    },
+    {
+      "name": "③a GET /network/federation-status ⇒ 协议 v3.0.0",
+      "pass": true,
+      "detail": "HTTP 200 v3.0.0"
+    },
+    {
+      "name": "③b 五大承诺矩阵齐备（5 项）",
+      "pass": true,
+      "detail": "merkle_state_machine,poi_sampling_slashing,dao_governance_hash_lock,pipeline_mesh_moa,local_first_failover"
+    },
+    {
+      "name": "③c 五大承诺 100% 实时合规",
+      "pass": true,
+      "detail": "rate=1 compliant=5/5"
+    },
+    {
+      "name": "③d 大盘锚定全局账本 State Root",
+      "pass": true,
+      "detail": "7183b89dc53772e9"
+    },
+    {
+      "name": "③e 多网关主备健康度可见",
+      "pass": true,
+      "detail": "gateways=1 healthy=1 all_healthy=true"
+    },
+    {
+      "name": "③f PoI 验真率 + DAO 锁模型数已聚合",
+      "pass": true,
+      "detail": "poi=0.1 dao_locked=6"
+    },
+    {
+      "name": "④a 买家调业主组网端点 ⇒ 被拒",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "④b 业主组建 2×6GB ⇒ 12GB 合体集群登记成功",
+      "pass": true,
+      "detail": "HTTP 200 p20-e2e-mwm64640"
+    },
+    {
+      "name": "④c 登记结果：2 分片 / 聚合显存 12GB",
+      "pass": true,
+      "detail": "shards=2 vram=12"
+    },
+    {
+      "name": "④d 新集群出现在公开拓扑大盘",
+      "pass": true,
+      "detail": "p20-e2e-mwm64640"
+    },
+    {
+      "name": "④e 分层切表 L0-39 / L40-79（不重不漏）",
+      "pass": true,
+      "detail": "L0-39 · L40-79"
+    },
+    {
+      "name": "④a 控制台首屏挂载",
+      "pass": true,
+      "detail": "尝试 1 次"
+    },
+    {
+      "name": "⑤a 🌐 Mesh / 联邦合规大盘已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤b 联邦 KPI 已渲染",
+      "pass": true,
+      "detail": "协议版本 v3.0.0 网关身份 gw-primary-01 网关健康 1/1 PoI 验真率 10.0% DAO 锁模型 6 活跃集群 1"
+    },
+    {
+      "name": "⑤c 全局 State Root 已渲染",
+      "pass": true,
+      "detail": "全局账本 State Root 锚点 7183b89dc537…327ed1 ledger 55 叶 · revenue"
+    },
+    {
+      "name": "⑤d 五大承诺合规矩阵已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤e 五大承诺逐项渲染",
+      "pass": true,
+      "detail": "5/5"
+    },
+    {
+      "name": "⑤f 多网关容灾状态条已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑤g Mesh 分片拓扑区已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑥c 业主侧 Mesh / 联邦大盘已渲染",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑥e 组网演练返回 12GB / 2 分片结论",
+      "pass": true,
+      "detail": "演练完成：集群 mesh-7aba813b 已登记 · 2 个成员 · 聚合显存 12 GB · 2 分片"
+    },
+    {
+      "name": "console 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-cd0c5b54b074ace29480d3ea79f30c67.js → content-encoding=gzip content-length=335601"
+    },
+    {
+      "name": "console 压缩后体积 < 400KB",
+      "pass": true,
+      "detail": "327.7KB"
+    },
+    {
+      "name": "pocket 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-cd0c5b54b074ace29480d3ea79f30c67.js → content-encoding=gzip content-length=335601"
+    },
+    {
+      "name": "pocket 压缩后体积 < 400KB",
+      "pass": true,
+      "detail": "327.7KB"
+    }
+  ],
+  "pageErrors": [
+    "console.error: Failed to load resource: the server responded with a status of 403 ()"
+  ]
+}

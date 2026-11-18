@@ -208,7 +208,7 @@ async function mount(page) {
         { timeout: T.mount, polling: 1000 }
       );
       mounted = true;
-      ok('④a 控制台首屏挂载', `尝试 ${attempt} 次`);
+      ok('⓪ 控制台首屏挂载', `尝试 ${attempt} 次`);
     } catch (e) {
       lastErr = e;
       console.log(`  [retry] 第 ${attempt} 次挂载失败：${String(e.message).split('\n')[0]}`);
