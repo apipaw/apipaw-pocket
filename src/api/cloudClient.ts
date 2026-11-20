@@ -2667,6 +2667,8 @@ export interface StateRootResponse {
   revenue_leaf_count: number;
   timestamp: number;
   algorithm?: string;
+  /** 阶段二十二 P2：锚定状态（当前仅通过 API 发布，未做外部锚定）。 */
+  anchor_status?: string;
 }
 
 /** 默克尔包含性证明（浏览器端可本地重算根并自证） */
@@ -3020,7 +3022,23 @@ export interface FederationStatusResponse {
     registered_cluster_count: number;
     live_mesh_node_count: number;
     aggregate_cluster_vram_gb: number;
+    /** 阶段二十二 P2：诚实标注执行阶段（当前只有拓扑规划与展示）。 */
+    execution_stage?: string;
   };
+  /** 阶段二十二 P2：五大承诺的**业务事实**计数（合规判定的依据）。 */
+  business_facts?: {
+    poi_audits: number;
+    dao_votes: number;
+    dao_executed_proposals: number;
+    dao_active_proposals: number;
+    real_traffic_7d: number;
+    real_traffic_total: number;
+    node_served_7d: number;
+    last_real_traffic_at: number;
+    measured_at: number;
+  };
+  /** 近 7 天真实推理（真实节点执行）的次数。 */
+  real_traffic_7d?: number;
   compliance: {
     total: number;
     compliant: number;

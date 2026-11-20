@@ -28,25 +28,50 @@ import { keccak256, Signature, SigningKey } from 'ethers/crypto';
  *     的 `signer.signMessage` 发出的 JSON-RPC 完全一致。
  */
 
-/** UTF-8 编码（不依赖 TextEncoder / Buffer，RN Hermes 与浏览器都可用） */
+/**
+ * UTF-8 编码（不依赖 TextEncoder / Buffer，RN Hermes 与浏览器都可用）。
+ *
+ * ⚠️ 阶段二十二 P1 · **孤立代理项（lone surrogate）口径修正**
+ *
+ * 旧实现把「高位代理项后面没有低位代理项」的情况落进了三字节分支，
+ * 于是产出了 WTF-8 / CESU-8 编码的**非法 UTF-8**
+ * （例如 `"\uD800"` → `ED A0 80`）。
+ * 而 `TextEncoder` 与 `ethers.toUtf8Bytes` 的口径是：
+ * **任何无法配对的代理项一律编码为 U+FFFD（`EF BF BD`）**。
+ *
+ * 两边不一致 ⇒ 同一段文本在浏览器与 RN 里算出的 `personal_sign` 摘要不同，
+ * 签名/验签会随机失败。本次把三处偏离全部对齐到 WHATWG UTF-8：
+ *   1. 孤立高位代理项（后面不是低位代理项）⇒ U+FFFD，**不吞掉下一个码元**；
+ *   2. 孤立低位代理项 ⇒ U+FFFD；
+ *   3. 合法代理项对 ⇒ 4 字节 UTF-8（不变）。
+ */
 export const utf8ToBytes = (text: string): Uint8Array => {
   const out: number[] = [];
+  const pushReplacement = () => out.push(0xef, 0xbf, 0xbd);
   for (let i = 0; i < text.length; i += 1) {
     const code = text.charCodeAt(i);
     if (code < 0x80) {
       out.push(code);
     } else if (code < 0x800) {
       out.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
-    } else if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
-      const next = text.charCodeAt(i + 1);
-      const cp = 0x10000 + ((code - 0xd800) << 10) + (next - 0xdc00);
-      i += 1;
-      out.push(
-        0xf0 | (cp >> 18),
-        0x80 | ((cp >> 12) & 0x3f),
-        0x80 | ((cp >> 6) & 0x3f),
-        0x80 | (cp & 0x3f),
-      );
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = i + 1 < text.length ? text.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        const cp = 0x10000 + ((code - 0xd800) << 10) + (next - 0xdc00);
+        i += 1;
+        out.push(
+          0xf0 | (cp >> 18),
+          0x80 | ((cp >> 12) & 0x3f),
+          0x80 | ((cp >> 6) & 0x3f),
+          0x80 | (cp & 0x3f),
+        );
+      } else {
+        // 孤立高位代理项 ⇒ U+FFFD（**不**消费下一个码元）
+        pushReplacement();
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      // 孤立低位代理项 ⇒ U+FFFD
+      pushReplacement();
     } else {
       out.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
     }

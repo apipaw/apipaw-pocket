@@ -26,8 +26,16 @@ const { Wallet } = require('ethers');
 
 const BASE_URL = process.argv[2] || 'https://console.apipaw.com';
 const CLOUD_URL = process.env.APIPAW_CLOUD_URL || 'https://cloud.apipaw.com';
-const OWNER_PK =
-  process.env.APIPAW_OWNER_PK || '0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d';
+const OWNER_PK = (process.env.APIPAW_OWNER_PK || '').trim();
+if (!/^0x[0-9a-fA-F]{64}$/.test(OWNER_PK)) {
+  // ⚠️ 阶段二十二 P1：私钥**只**从环境变量注入。
+  //   旧版本硬编码了一把公网上公开的演示私钥（对应地址
+  //   0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1）⇒ 任何人都能冒充业主。
+  //   现在缺失即退出，绝不兜底、绝不内置。
+  console.error('[FATAL] 缺少或非法环境变量 APIPAW_OWNER_PK（业主钱包私钥）。');
+  console.error('        私钥**不得**写进仓库；请在本地 shell 里 export 后重跑。');
+  process.exit(1);
+}
 const MODEL_ID = process.env.APIPAW_E2E_MODEL_ID || 'p9:e2e-model';
 const DIST = path.join(__dirname, '..', 'dist');
 const SHOT_DIR = path.join(__dirname, 'shots');

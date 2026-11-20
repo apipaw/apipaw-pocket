@@ -1,21 +1,40 @@
 /**
  * 取一个**真实**的 OWNER 钱包会话（线上）。
  *
- * 生产 OWNER 账户 acct_230bad0cd00541e1 的 owner_wallet 就是那个公开的演示钱包
- * 0x71C7656EC7ab88b098defB751B7401B5f6d8976F（Ganache 确定性账户 #0，
- * 私钥在公网上是公开的）—— 服务端 ``find_user_by_owner_wallet`` 会把它
- * 自动关联到 OWNER 账户，所以走**真实的 nonce → 签名 → verify** 就能拿到
- * 真会话 JWT（不是伪造的）。
+ * ⚠️ 阶段二十二 P1 · **私钥不再入库**
+ *   旧版本把一把**私钥硬编码**在本文件里（``0x4f3e…b1d``），
+ *   而它对应的地址 ``0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1``
+ *   是公网上人手一份的公开演示钱包 —— 等于**任何人都能冒充业主**。
+ *   现在私钥**只能**从环境变量 ``APIPAW_OWNER_PK`` 注入：
+ *     · 缺失 ⇒ 打印错误并 ``exit(1)``，不猜、不兜底、不内置；
+ *     · 本文件（以及仓库任何位置）**不再保存任何私钥**。
+ *
+ *   ⚠️ 旧注释里的 OWNER 钱包地址 ``0x71C7656EC7ab88b098defB751B7401B5f6d8976F``
+ *      与硬编码私钥的实际地址 **对不上**（那是另一把钥匙）—— 属于误导性文档，
+ *      一并修正：以 ``APIPAW_OWNER_PK`` 推导出的地址为准。
  *
  * 跑法：
+ *   export APIPAW_OWNER_PK='0x…'          # 仅在本地环境变量里给，别提交
  *   NODE_PATH=D:/ClaudeCode_Installed/node_modules node e2e/owner-session.js
  *
- * 输出：TOKEN=<jwt>  HANDLE=<acct_xxx>  ROLE=<OWNER>
+ * 输出：TOKEN=<jwt>  HANDLE=<acct_xxx>  ROLE=<OWNER>  WALLET=<0x…>
  */
 const { Wallet } = require('ethers');
 
-const OWNER_PK = process.env.APIPAW_OWNER_PK || '0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d';
+const OWNER_PK = (process.env.APIPAW_OWNER_PK || '').trim();
 const BASE = process.argv[2] || 'https://cloud.apipaw.com';
+
+if (!OWNER_PK) {
+  console.error('[FATAL] 缺少环境变量 APIPAW_OWNER_PK（业主钱包私钥）。');
+  console.error('        私钥**不得**写进仓库；请在本地 shell 里 export 后重跑。');
+  console.error('        例：APIPAW_OWNER_PK=0x… node e2e/owner-session.js');
+  process.exit(1);
+}
+
+if (!/^0x[0-9a-fA-F]{64}$/.test(OWNER_PK)) {
+  console.error('[FATAL] APIPAW_OWNER_PK 格式非法（应为 0x + 64 位十六进制）。');
+  process.exit(1);
+}
 
 (async () => {
   const wallet = new Wallet(OWNER_PK);

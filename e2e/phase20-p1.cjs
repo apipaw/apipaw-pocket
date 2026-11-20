@@ -6,8 +6,9 @@
  *      - 买家调业主端点 ⇒ 401/403。
  *   ② P2 多网关容灾 + 白皮书 v3.0 合规大盘：
  *      - `GET  /api/v1/network/federation-status` ⇒ 协议 v3.0.0 / 主备网关 / State Root /
- *        PoI 验真率 / DAO 锁模型数 / **五大承诺 100% 合规矩阵**；
- *      - 合规矩阵五项 `compliant` 全为真。
+ *        PoI 验真率 / DAO 锁模型数 / **五大承诺实时合规矩阵（业务事实口径）**；
+ *      - 合规矩阵五项 `compliant` 必须与业务事实**独立复算一致**，
+ *        且大盘如实暴露 `real_traffic_7d` / `business_facts`（**不恒为 100%**）。
  *   ③ UI：🌐 Pipeline Mesh 异构算力网格 · 多网关容灾联邦与白皮书 v3.0 合规大盘
  *      （买家视角 + 业主视角「组建局域网 Pipeline Mesh 合体集群」演练）。
  *   ④ P3：双站 Gzip < 400KB。
@@ -293,10 +294,47 @@ const PILLARS = [
     complianceRate = Number(compliance.rate || 0);
     check(pillars.length === 5, '③b 五大承诺矩阵齐备（5 项）',
       pillars.map((p) => p.id).join(','));
-    const allCompliant = pillars.length === 5 && pillars.every((p) => p.compliant === true);
-    check(allCompliant && complianceRate === 1,
-      '③c 五大承诺 100% 实时合规',
-      `rate=${complianceRate} compliant=${compliance.compliant}/${compliance.total}`);
+    /* 阶段二十二 P2：不再断言「恒 100%」。
+       旧断言 `allCompliant && rate === 1` 就是那个 bug 的镜像 ——
+       它把「常量校验恒真」当成「能力已兑现」。
+       现在改为断言：**服务端的合规结论 == 用 evidence 独立复算的结论**，
+       并且真实流量/业务事实被如实暴露。 */
+    const expectPillar = (pid) => {
+      const p = pillars.find((x) => x.id === pid) || {};
+      const ev = p.evidence || {};
+      switch (pid) {
+        case 'merkle_state_machine':
+          return !!(ev.state_root) && Number(ev.ledger_leaf_count || 0) > 0;
+        case 'poi_sampling_slashing':
+          return Math.abs(Number(ev.spot_check_rate || 0) - 0.05) < 1e-9
+            && Number(ev.poi_audits || 0) >= 1
+            && Number(ev.verified_inferences || 0) >= 1;
+        case 'dao_governance_hash_lock':
+          return Number(ev.governance_threshold || 0) >= 0.66 - 1e-9
+            && Number(ev.locked_model_count || 0) > 0
+            && Number(ev.dao_votes || 0) >= 1
+            && Number(ev.executed_proposals || 0) >= 1;
+        case 'pipeline_mesh_moa':
+          return Number(ev.registered_cluster_count || 0) >= 1
+            && Number(ev.live_mesh_node_count || 0) >= 2;
+        case 'local_first_failover':
+          return Number(ev.gateway_count || 0) >= 2 && !!ev.failover_ready;
+        default:
+          return false;
+      }
+    };
+    const PILLAR_IDS = ['merkle_state_machine', 'poi_sampling_slashing',
+      'dao_governance_hash_lock', 'pipeline_mesh_moa', 'local_first_failover'];
+    const mismatches = PILLAR_IDS.filter(
+      (pid) => expectPillar(pid) !== !!((pillars.find((p) => p.id === pid) || {}).compliant));
+    check(mismatches.length === 0,
+      '③c 五大承诺合规判定与业务事实一致（不恒真）',
+      `rate=${complianceRate} compliant=${compliance.compliant}/${compliance.total}`
+      + (mismatches.length ? ` mismatch=${mismatches.join(',')}` : ''));
+    check(typeof fed.real_traffic_7d === 'number'
+      && fed.business_facts && typeof fed.business_facts.real_traffic_7d === 'number',
+      '③c2 大盘如实暴露 real_traffic_7d 与 business_facts',
+      `real_traffic_7d=${fed.real_traffic_7d}`);
     check(isHex64(String(fed.state_root?.state_root || '')),
       '③d 大盘锚定全局账本 State Root',
       String(fed.state_root?.state_root || '').slice(0, 16));
@@ -399,6 +437,16 @@ const PILLARS = [
     }
     check(pillarSeen.length === PILLARS.length,
       '⑤e 五大承诺逐项渲染', `${pillarSeen.length}/${PILLARS.length}`);
+    /* 阶段二十二 P2：前端必须渲染**实测**计数与诚实口径文案，不得伪装 100% */
+    const matrixText = await page.locator('[data-testid="compliance-matrix"]')
+      .innerText().catch(() => '');
+    const measured = compliance.compliant;
+    const measuredTotal = compliance.total;
+    check(matrixText.includes(`${measured}/${measuredTotal}`),
+      '⑤e2 合规矩阵标题渲染实测计数（不伪装 100%）',
+      matrixText.replace(/\s+/g, ' ').slice(0, 120));
+    check(/不保证也不伪装成 100%|业务事实/.test(matrixText),
+      '⑤e3 合规矩阵附带诚实口径说明', matrixText.replace(/\s+/g, ' ').slice(0, 120));
     check((await page.locator('[data-testid="gateway-status"]').count()) > 0,
       '⑤f 多网关容灾状态条已渲染', '');
     check((await page.locator('[data-testid="mesh-shard-topology"]').count()) > 0,

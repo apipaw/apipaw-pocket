@@ -1,0 +1,147 @@
+{
+  "stamp": "P22E2EMWOWV8CH",
+  "buyerHandle": "acct_2f88bfed3837c63c",
+  "buyerKeyMasked": "paw-sk-****",
+  "compliance_rate": 0.2,
+  "passed": 27,
+  "total": 27,
+  "soft": 0,
+  "results": [
+    {
+      "name": "①a 签发全新买家账户",
+      "pass": true,
+      "detail": "paw-sk-****"
+    },
+    {
+      "name": "②a 生产充值默认**关闭**（403 demo_recharge_disabled）",
+      "pass": true,
+      "detail": "HTTP 403 demo_recharge_disabled"
+    },
+    {
+      "name": "②b 被拒的充值**没有**真的加钱",
+      "pass": true,
+      "detail": "demo_recharge_disabled"
+    },
+    {
+      "name": "②c 超大额充值被拒（闸门先于金额校验生效）",
+      "pass": true,
+      "detail": "HTTP 403 demo_recharge_disabled"
+    },
+    {
+      "name": "③a 恶意 Origin 不获 CORS 放行（不再是 *）",
+      "pass": true,
+      "detail": "ACAO=(none)"
+    },
+    {
+      "name": "③b 白名单 Origin 正常放行",
+      "pass": true,
+      "detail": "ACAO=https://console.apipaw.com"
+    },
+    {
+      "name": "④a 匿名 overview-analytics 不泄露他人账目",
+      "pass": true,
+      "detail": "HTTP 200 scoped=false 泄露字段=[]"
+    },
+    {
+      "name": "⑤a GET /network/federation-status ⇒ 协议 v3.0.0",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "⑤b 五大承诺矩阵齐备（5 项）",
+      "pass": true,
+      "detail": "merkle_state_machine,poi_sampling_slashing,dao_governance_hash_lock,pipeline_mesh_moa,local_first_failover"
+    },
+    {
+      "name": "⑤c 合规判定与业务事实一致（不恒真）",
+      "pass": true,
+      "detail": "compliant=1/5"
+    },
+    {
+      "name": "⑤d 大盘如实暴露 real_traffic_7d 与 business_facts",
+      "pass": true,
+      "detail": "real_traffic_7d=3"
+    },
+    {
+      "name": "⑤e 默克尔算法标签诚实（sha256-hex-merkle）",
+      "pass": true,
+      "detail": "sha256-hex-merkle"
+    },
+    {
+      "name": "⑤f 锚定状态标签存在（不谎称已上链）",
+      "pass": true,
+      "detail": "published_via_api_not_externally_anchored"
+    },
+    {
+      "name": "⑤g Mesh 执行阶段诚实标注（仅拓扑规划）",
+      "pass": true,
+      "detail": "topology_planning_only"
+    },
+    {
+      "name": "⑤h 大盘带诚实口径说明",
+      "pass": true,
+      "detail": "五大承诺矩阵为**实时自检**：每项证据均取自线上库/注册表，非硬编码。判定依据是**业务事实**（真审计、真投票、真执"
+    },
+    {
+      "name": "⑥a X-Content-Type-Options: nosniff",
+      "pass": true,
+      "detail": "nosniff"
+    },
+    {
+      "name": "⑥b X-Frame-Options 已设置",
+      "pass": true,
+      "detail": "deny"
+    },
+    {
+      "name": "⑥c Referrer-Policy 已设置",
+      "pass": true,
+      "detail": "strict-origin-when-cross-origin"
+    },
+    {
+      "name": "⑥d 直连源站（伪造 Host）⇒ 403（Cloudflare 源站白名单生效）",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "⑥e 经 Cloudflare 正常访问仍为 200",
+      "pass": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "⑦a 控制台首屏挂载",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "⑦b 合规矩阵渲染实测计数（不伪装 100%）",
+      "pass": true,
+      "detail": "🧭 白皮书 v3.0 五大承诺实时自检（实测 1/5 合规） 判定依据是**线上业务事实**（真审计 / 真投票 / 真执行 / 真机流量 / 真实备网关）， 不是配置常量 ⇒ 合规率随真实能力浮动，**不保证也不伪装成 100%**。 "
+    },
+    {
+      "name": "⑦c 合规矩阵附带诚实口径说明",
+      "pass": true,
+      "detail": "🧭 白皮书 v3.0 五大承诺实时自检（实测 1/5 合规） 判定依据是**线上业务事实**（真审计 / 真投票 / 真执行 / 真机流量 / 真实备网关）， 不是配置常量 ⇒ 合规率随真实能力浮动，**不保证也不伪装成 100%**。 "
+    },
+    {
+      "name": "console 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-a3db6b89cc6352740feb56fd75b9174d.js → content-encoding=gzip content-length=336040"
+    },
+    {
+      "name": "console 压缩后体积 < 400KB",
+      "pass": true,
+      "detail": "328.2KB"
+    },
+    {
+      "name": "pocket 返回 Content-Encoding: gzip",
+      "pass": true,
+      "detail": "/_expo/static/js/web/index-a3db6b89cc6352740feb56fd75b9174d.js → content-encoding=gzip content-length=336040"
+    },
+    {
+      "name": "pocket 压缩后体积 < 400KB",
+      "pass": true,
+      "detail": "328.2KB"
+    }
+  ],
+  "pageErrors": []
+}

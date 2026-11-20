@@ -40,6 +40,26 @@ const splitLabel = (sp: MeshLayerSplit, index: number): string => {
   return `节点 ${index + 1}`;
 };
 
+/**
+ * 阶段二十二 P2 · 诚实锚定标签。
+ *
+ * 旧文案一律叫「锚点」，但服务端的 State Root **只通过公开 API 发布**，
+ * 从没做过链上 / 第三方外部锚定 —— 叫「锚点」属于误导。
+ * 这里把机器可读状态翻成**如实描述**。
+ */
+const anchorLabel = (status?: string): string => {
+  switch (status) {
+    case 'published_via_api_not_externally_anchored':
+      return '仅经公开 API 发布（未做链上 / 第三方外部锚定）';
+    case '':
+    case undefined:
+    case null:
+      return '未标注';
+    default:
+      return status;
+  }
+};
+
 interface Props {
   /** 业主视角：额外显示「组建局域网 Pipeline Mesh 合体集群」演练 */
   owner?: boolean;
@@ -215,6 +235,10 @@ const MeshAndFederationCard: React.FC<Props> = ({ owner = false }) => {
               <Text style={styles.kpiLabel}>活跃集群</Text>
               <Text style={styles.kpiValue}>{fed?.mesh?.registered_cluster_count ?? 0}</Text>
             </View>
+            <View style={styles.kpiCell}>
+              <Text style={styles.kpiLabel}>7 天真实推理</Text>
+              <Text style={styles.kpiValue}>{fed?.real_traffic_7d ?? 0}</Text>
+            </View>
           </View>
 
           {/* ---- 全局状态根锚点 ---- */}
@@ -224,6 +248,9 @@ const MeshAndFederationCard: React.FC<Props> = ({ owner = false }) => {
             <Text style={styles.rootMeta}>
               ledger {fed?.state_root?.ledger_leaf_count ?? 0} 叶 · revenue{' '}
               {fed?.state_root?.revenue_leaf_count ?? 0} 叶 · {fed?.state_root?.algorithm || '—'}
+            </Text>
+            <Text style={styles.rootMeta}>
+              锚定状态：{anchorLabel(fed?.state_root?.anchor_status)}
             </Text>
           </View>
 
@@ -267,7 +294,12 @@ const MeshAndFederationCard: React.FC<Props> = ({ owner = false }) => {
           {/* ---- 五大承诺合规矩阵 ---- */}
           <View style={styles.section} testID="compliance-matrix">
             <Text style={styles.sectionTitle}>
-              ✅ 白皮书 v3.0 五大承诺实时自检（{compliant}/{pillars.length} 合规）
+              {compliant === pillars.length && pillars.length > 0 ? '✅' : '🧭'} 白皮书 v3.0 五大承诺实时自检（实测{' '}
+              {compliant}/{pillars.length} 合规）
+            </Text>
+            <Text style={styles.pillarNote}>
+              判定依据是**线上业务事实**（真审计 / 真投票 / 真执行 / 真机流量 / 真实备网关），
+              不是配置常量 ⇒ 合规率随真实能力浮动，**不保证也不伪装成 100%**。
             </Text>
             {pillars.map((p) => (
               <View key={p.id} style={styles.pillarRow} testID={`compliance-${p.id}`}>
@@ -427,6 +459,13 @@ const styles = StyleSheet.create({
   pillarBody: { flexShrink: 1, gap: 2 },
   pillarTitle: { color: colors.textPrimary, fontSize: fontSize.xs, fontWeight: '700' },
   pillarEvidence: { color: colors.textMuted, fontSize: 11, fontFamily: monoFont },
+
+  pillarNote: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: spacing.sm,
+  },
 
   ownerBox: { gap: spacing.sm },
   drillBtn: {
