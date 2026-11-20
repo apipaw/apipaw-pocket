@@ -1,6 +1,6 @@
 {
-  "stamp": "P22E2EMWOWV8CH",
-  "buyerHandle": "acct_2f88bfed3837c63c",
+  "stamp": "P22E2EMWOXC1O4",
+  "buyerHandle": "acct_59f40a335fc16276",
   "buyerKeyMasked": "paw-sk-****",
   "compliance_rate": 0.2,
   "passed": 27,
@@ -115,17 +115,17 @@
     {
       "name": "⑦b 合规矩阵渲染实测计数（不伪装 100%）",
       "pass": true,
-      "detail": "🧭 白皮书 v3.0 五大承诺实时自检（实测 1/5 合规） 判定依据是**线上业务事实**（真审计 / 真投票 / 真执行 / 真机流量 / 真实备网关）， 不是配置常量 ⇒ 合规率随真实能力浮动，**不保证也不伪装成 100%**。 "
+      "detail": "🧭 白皮书 v3.0 五大承诺实时自检（实测 1/5 合规） 判定依据是线上业务事实（真审计 / 真投票 / 真执行 / 真机流量 / 真实备网关）， 不是配置常量 ⇒ 合规率随真实能力浮动，不保证也不伪装成 100%。 ✔ ① 默克尔根"
     },
     {
       "name": "⑦c 合规矩阵附带诚实口径说明",
       "pass": true,
-      "detail": "🧭 白皮书 v3.0 五大承诺实时自检（实测 1/5 合规） 判定依据是**线上业务事实**（真审计 / 真投票 / 真执行 / 真机流量 / 真实备网关）， 不是配置常量 ⇒ 合规率随真实能力浮动，**不保证也不伪装成 100%**。 "
+      "detail": "🧭 白皮书 v3.0 五大承诺实时自检（实测 1/5 合规） 判定依据是线上业务事实（真审计 / 真投票 / 真执行 / 真机流量 / 真实备网关）， 不是配置常量 ⇒ 合规率随真实能力浮动，不保证也不伪装成 100%。 ✔ ① 默克尔根"
     },
     {
       "name": "console 返回 Content-Encoding: gzip",
       "pass": true,
-      "detail": "/_expo/static/js/web/index-a3db6b89cc6352740feb56fd75b9174d.js → content-encoding=gzip content-length=336040"
+      "detail": "/_expo/static/js/web/index-8dbac4900bd66956d2cdca2d7d70d371.js → content-encoding=gzip content-length=336033"
     },
     {
       "name": "console 压缩后体积 < 400KB",
@@ -135,7 +135,7 @@
     {
       "name": "pocket 返回 Content-Encoding: gzip",
       "pass": true,
-      "detail": "/_expo/static/js/web/index-a3db6b89cc6352740feb56fd75b9174d.js → content-encoding=gzip content-length=336040"
+      "detail": "/_expo/static/js/web/index-8dbac4900bd66956d2cdca2d7d70d371.js → content-encoding=gzip content-length=336033"
     },
     {
       "name": "pocket 压缩后体积 < 400KB",

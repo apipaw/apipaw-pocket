@@ -298,8 +298,8 @@ const MeshAndFederationCard: React.FC<Props> = ({ owner = false }) => {
               {compliant}/{pillars.length} 合规）
             </Text>
             <Text style={styles.pillarNote}>
-              判定依据是**线上业务事实**（真审计 / 真投票 / 真执行 / 真机流量 / 真实备网关），
-              不是配置常量 ⇒ 合规率随真实能力浮动，**不保证也不伪装成 100%**。
+              判定依据是线上业务事实（真审计 / 真投票 / 真执行 / 真机流量 / 真实备网关），
+              不是配置常量 ⇒ 合规率随真实能力浮动，不保证也不伪装成 100%。
             </Text>
             {pillars.map((p) => (
               <View key={p.id} style={styles.pillarRow} testID={`compliance-${p.id}`}>
