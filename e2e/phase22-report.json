@@ -1,6 +1,6 @@
 {
-  "stamp": "P22E2EMWOXC1O4",
-  "buyerHandle": "acct_59f40a335fc16276",
+  "stamp": "P22E2EMWUIOVQ0",
+  "buyerHandle": "acct_d4c43193dd50d43c",
   "buyerKeyMasked": "paw-sk-****",
   "compliance_rate": 0.2,
   "passed": 27,
@@ -60,7 +60,7 @@
     {
       "name": "⑤d 大盘如实暴露 real_traffic_7d 与 business_facts",
       "pass": true,
-      "detail": "real_traffic_7d=3"
+      "detail": "real_traffic_7d=0"
     },
     {
       "name": "⑤e 默克尔算法标签诚实（sha256-hex-merkle）",
@@ -135,7 +135,7 @@
     {
       "name": "pocket 返回 Content-Encoding: gzip",
       "pass": true,
-      "detail": "/_expo/static/js/web/index-8dbac4900bd66956d2cdca2d7d70d371.js → content-encoding=gzip content-length=336033"
+      "detail": "/_expo/static/js/web/index-b4955319a8491d09b58bd09b927083b9.js → content-encoding=gzip content-length=336044"
     },
     {
       "name": "pocket 压缩后体积 < 400KB",

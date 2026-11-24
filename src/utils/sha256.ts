@@ -31,17 +31,25 @@ const K = [
 const rotr = (x: number, n: number): number =>
   ((x >>> n) | (x << (32 - n))) >>> 0;
 
-/** UTF-8 编码（手动处理代理对，避免依赖 TextEncoder —— RN 上不一定有）。 */
+/** UTF-8 编码（手动处理代理对，避免依赖 TextEncoder —— RN 上不一定有）。
+ *
+ * ⚠️ 阶段二十二 P1 复核加固：孤立代理项（无法配对的 high / low surrogate）
+ *    必须编码为 **U+FFFD（EF BF BD）** —— 与 WHATWG `TextEncoder` 及
+ *    `src/wallet/eth.ts` 的 `utf8ToBytes` **逐字节一致**。
+ *    原实现把它们当普通 3 字节字符（0xED 0xA0 0x80 之类）⇒ 与浏览器算出的
+ *    摘要不一致，默克尔根/签名字节两套实现对不上。
+ */
 const utf8Bytes = (input: string): number[] => {
   const out: number[] = [];
+  const pushReplacement = () => out.push(0xef, 0xbf, 0xbd);
   for (let i = 0; i < input.length; i += 1) {
     const c = input.charCodeAt(i);
     if (c < 0x80) {
       out.push(c);
     } else if (c < 0x800) {
       out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
-    } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < input.length) {
-      const c2 = input.charCodeAt(i + 1);
+    } else if (c >= 0xd800 && c <= 0xdbff) {
+      const c2 = i + 1 < input.length ? input.charCodeAt(i + 1) : 0;
       if (c2 >= 0xdc00 && c2 <= 0xdfff) {
         i += 1;
         const cp = 0x10000 + ((c - 0xd800) << 10) + (c2 - 0xdc00);
@@ -52,8 +60,12 @@ const utf8Bytes = (input: string): number[] => {
           0x80 | (cp & 63),
         );
       } else {
-        out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+        // 孤立高位代理项 ⇒ U+FFFD（**不**消费下一个码元）
+        pushReplacement();
       }
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      // 孤立低位代理项 ⇒ U+FFFD
+      pushReplacement();
     } else {
       out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
     }
