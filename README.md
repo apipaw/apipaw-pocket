@@ -32,6 +32,16 @@ APIPaw Pocket 是一款专为 **DePIN（去中心化物理基础设施网络）*
 
 线上地址：**https://pocket.apipaw.com**
 
+> **当前交付形态（诚实说明）**
+>
+> | 形态 | 状态 |
+> |---|---|
+> | **Web / PWA 控制台**（`https://pocket.apipaw.com`） | ✅ **已上线** —— 随本仓 CI 的 `expo export -p web` + gzip 体积闸门（< 400 KB）持续发布 |
+> | **原生 App**（iOS / Android，Expo / React Native） | ⏳ **代码就绪，尚未发布** —— 原生 EAS 构建与商店上架仍在排队中，目前**没有**可下载的原生包 |
+>
+> 也就是说：今天能直接用的是 **Web 控制台**；原生端是**同一套代码**、可继续往前走的一步，
+> 但请不要把它当成"已可下载"的成品。
+
 ### 极客技术栈
 
 | 层 | 选型 |
@@ -141,6 +151,16 @@ aurora gradients, frosted-glass cards, neon gradient borders, gradient-filled nu
 breathing status lights and a conversation area that behaves like a real terminal.
 
 Live site: **https://pocket.apipaw.com**
+
+> **Delivery status (honest note)**
+>
+> | Form | Status |
+> |---|---|
+> | **Web / PWA console** (`https://pocket.apipaw.com`) | ✅ **live** — released by this repo's CI (`expo export -p web` + gzip size gate, < 400 KB) |
+> | **Native app** (iOS / Android, Expo / React Native) | ⏳ **code-ready, not shipped yet** — the native EAS build and store submission are still queued; there is **no** downloadable native package today |
+>
+> In short: the thing you can use right now is the **web console**; the native build is the
+> *same codebase* one step further along — not a finished download.
 
 ### Geek tech stack
 
