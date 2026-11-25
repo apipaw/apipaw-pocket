@@ -214,7 +214,11 @@ const tierTextOf = (tier?: string | null): string => {
 interface ReasoningCardProps {
   text: string;
   live: boolean;
-  elapsedMs: number;
+  /** 兼容旧调用：直接给毫秒数（无起止时间时回落到它） */
+  elapsedMs?: number;
+  /** 阶段二十四 P1 · 思考耗时由**本组件自己**计时（见下） */
+  startedAt?: number;
+  endedAt?: number;
   onToggle: () => void;
   /** 阶段五 P2 · D8：来源徽标（真实节点 / 模拟回答） */
   sourceLabel?: string;
@@ -225,6 +229,8 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({
   text,
   live,
   elapsedMs,
+  startedAt,
+  endedAt,
   onToggle,
   sourceLabel,
   sourceColor,
@@ -233,6 +239,17 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({
   const [copied, setCopied] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const userToggled = useRef(false);
+
+  // 阶段二十四 P1 · 耗时计时**下沉到本组件**
+  // 旧实现：父组件每 120ms setTick ⇒ 整个 2200 行卡片重渲染一次，
+  // 而这里只需要刷新一句"耗时 x.x s" ⇒ 局部 state 足够，
+  // 且**不思考时定时器根本不启动**（live=false ⇒ 直接 return）。
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), 120);
+    return () => clearInterval(timer);
+  }, [live]);
 
   // 思考进行中默认展开以展示打字机效果, 用户手动折叠后不再自动展开
   useEffect(() => {
@@ -271,7 +288,12 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({
   const opacity = progress.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 0.4, 1] });
 
   const tokens = estimateTokens(stripThinkTags(text));
-  const seconds = (elapsedMs / 1000).toFixed(1);
+  // 阶段二十四 P1 · 耗时来源优先级：起止时间（自己算，会随 120ms 局部 tick 走）
+  // > 父组件传入的毫秒数（兼容旧调用）。
+  const elapsedValue = startedAt
+    ? (endedAt ?? now) - startedAt
+    : elapsedMs ?? 0;
+  const seconds = (elapsedValue / 1000).toFixed(1);
 
   return (
     <View style={styles.reasonCard}>
@@ -430,6 +452,69 @@ const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
   </View>
 );
 
+// ----------------- 阶段二十四 P1 · 流式性能微组件 -----------------
+
+/**
+ * 流式过程中的**实时**性能读数（TTFT / tok/s / 总 token）。
+ *
+ * 为什么要独立成组件（这是"120ms 重渲染风暴"的根治点）
+ * --------------------------------------------------
+ * 旧实现：父组件持有 ``tick``，每 120ms ``setTick`` 一次 ⇒
+ *   * 整个 PlaygroundCard（2200+ 行、含模型选择器/导出弹窗/消息列表）
+ *     每 120ms 完整重渲染一次；
+ *   * 并且每次都 ``setMessages(prev => prev.map(...))`` 重建**整个消息数组**
+ *     —— 即"一个数字在跳 ⇒ 全站重排"。
+ *
+ * 新实现：计时与统计**下沉到本组件**，只有本组件（几十行）重渲染；
+ * 父组件在流式期间**完全不动**（不再有任何 120ms 定时器）。
+ * 组件只在 ``live`` 为真时挂载 ⇒ **不流式 ⇒ 定时器根本不存在**。
+ *
+ * 口径与旧实现逐字一致（TTFT=首 token - 发起时刻；tok/s 按已产出字符估算），
+ * 结算后仍由后端 usage 校准（``finalizeRun``）。
+ */
+interface LiveRunSnapshot {
+  startedAt: number;
+  firstTokenAt: number;
+  contentChars: number;
+}
+
+const LiveRunStats: React.FC<{ run: LiveRunSnapshot }> = ({ run }) => {
+  const [, bump] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => bump((n) => n + 1), 120);
+    return () => clearInterval(timer);
+  }, []);
+
+  const now = Date.now();
+  const ttftMs = run.firstTokenAt ? run.firstTokenAt - run.startedAt : now - run.startedAt;
+  const genMs = run.firstTokenAt ? now - run.firstTokenAt : 0;
+  const completionTokens = estimateTokens('x'.repeat(run.contentChars));
+  const tokensPerSec = genMs > 0 ? completionTokens / (genMs / 1000) : 0;
+
+  const stats: RunStats = {
+    ttftMs,
+    tokensPerSec,
+    costUsd: 0,
+    cgas: 0,
+    promptTokens: 0,
+    completionTokens,
+    totalTokens: completionTokens,
+    baseComputeUsd: 0,
+    nodeEarnUsd: 0,
+    creatorRoyaltyUsd: 0,
+    platformFeeUsd: 0,
+    royaltyPoolUsd: 0,
+    creatorShareUsd: 0,
+    platformTotalUsd: 0,
+    // 流式过程中还没有后端实测值 ⇒ 明确标成「本地计时」
+    perfSource: 'local',
+    partial: true,
+  };
+
+  return <StatsBar stats={stats} />;
+};
+
 // ----------------- 主组件 -----------------
 
 const PlaygroundCard: React.FC = () => {
@@ -449,7 +534,8 @@ const PlaygroundCard: React.FC = () => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [streaming, setStreaming] = useState(false);
-  const [tick, setTick] = useState(0);
+  // 阶段二十四 P1：父组件**不再持有 120ms 定时器**（旧的 tick state 已删除）。
+  // 流式计时/性能读数下沉到 LiveRunStats 微组件 ⇒ 父组件在流式期间零重渲染。
 
   // ----------------- 阶段五 P0 · 参数面板 -----------------
   // 此前 Playground 只能改模型，采样参数一概不可调 —— 即便调了也不会生效
@@ -532,12 +618,11 @@ const PlaygroundCard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelCatalogVersion]);
 
-  // 思考链计时刷新
-  useEffect(() => {
-    if (!streaming) return;
-    const timer = setInterval(() => setTick((t) => t + 1), 120);
-    return () => clearInterval(timer);
-  }, [streaming]);
+  // 阶段二十四 P1：原先这里有一个**常驻**的 120ms 思考链计时器
+  // （``setInterval(() => setTick(...), 120)``）—— 它在**不流式时也在跑**
+  // （只要 streaming 曾为 true 就重建，且每次 tick 都让整卡重渲染）。
+  // 现已删除：计时下沉到 ReasoningCard / LiveRunStats 两个微组件，
+  // 不流式时**根本没有定时器**。
 
   useEffect(() => {
     return () => {
@@ -1099,44 +1184,11 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
   // ----------------- 阶段五 P2 · D9：流式性能实时刷新 -----------------
   // TTFT 与 tok/s 都是**前端本地计时**：请求发出 → 第一个有效 delta 为 TTFT，
   // 之后按已产出字符估算流式 tok/s，随流推进实时跳动（流结束后由后端 usage 校准）。
-  useEffect(() => {
-    if (!streaming) return;
-    const run = runRef.current;
-    const now = Date.now();
-    const ttftMs = run.firstTokenAt ? run.firstTokenAt - run.startedAt : now - run.startedAt;
-    const genMs = run.firstTokenAt ? now - run.firstTokenAt : 0;
-    const completionTokens = estimateTokens('x'.repeat(run.contentChars));
-    const tokensPerSec = genMs > 0 ? completionTokens / (genMs / 1000) : 0;
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === lastMessageId && (!m.stats || m.stats.partial)
-          ? {
-              ...m,
-              stats: {
-                ttftMs,
-                tokensPerSec,
-                costUsd: 0,
-                cgas: 0,
-                promptTokens: 0,
-                completionTokens,
-                totalTokens: completionTokens,
-                baseComputeUsd: 0,
-                nodeEarnUsd: 0,
-                creatorRoyaltyUsd: 0,
-                platformFeeUsd: 0,
-                royaltyPoolUsd: 0,
-                creatorShareUsd: 0,
-                platformTotalUsd: 0,
-                // 流式过程中还没有后端实测值 ⇒ 明确标成「本地计时」
-                perfSource: 'local',
-                partial: true,
-              },
-            }
-          : m,
-      ),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, streaming, lastMessageId]);
+  //
+  // 阶段二十四 P1：这段逻辑**整体搬到 LiveRunStats 微组件**去了。
+  // 旧写法每 120ms 就 ``setMessages(prev => prev.map(...))`` 一次 ——
+  // 即"一个数字在跳 ⇒ 整个消息数组被重建 ⇒ 整卡重渲染"。
+  // 现在：流式期间父组件**完全不动**，只有几十行的微组件自己跳。
 
   return (
     <View style={styles.card} testID="playground-card" id="apx-glass-playground">
@@ -1404,12 +1456,8 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
             }
 
             const isLive = streaming && message.id === lastMessageId;
-            const elapsed =
-              message.reasoningStartedAt && message.reasoningEndedAt
-                ? message.reasoningEndedAt - message.reasoningStartedAt
-                : message.reasoningStartedAt
-                  ? Date.now() - message.reasoningStartedAt
-                  : 0;
+            // 阶段二十四 P1：耗时改由 ReasoningCard **自己**算（自带 120ms 局部 tick），
+            // 父组件不再需要在每次渲染里读 Date.now()（那也拿不到"当下"的值）。
 
             const sourceMeta = sourceMetaOf(message.answerSource);
 
@@ -1465,7 +1513,8 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
                   <ReasoningCard
                     text={message.reasoning}
                     live={isLive && !message.content}
-                    elapsedMs={elapsed}
+                    startedAt={message.reasoningStartedAt}
+                    endedAt={message.reasoningEndedAt}
                     onToggle={() => undefined}
                     sourceLabel={sourceMeta?.label}
                     sourceColor={sourceMeta?.color}
@@ -1487,7 +1536,13 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
                   </Text>
                 ) : null}
 
-                {message.stats ? <StatsBar stats={message.stats} /> : null}
+                {/* 阶段二十四 P1：流式期间用**微组件**渲染实时读数（自己跳，不拖累父级）；
+                    流结束后回落到结算后的后端实测值（message.stats）。 */}
+                {isLive && runRef.current ? (
+                  <LiveRunStats run={runRef.current} />
+                ) : message.stats ? (
+                  <StatsBar stats={message.stats} />
+                ) : null}
 
                 {/* 阶段十二 P1 · 回答质量打分（👍 / 👎 / 复制） */}
                 {message.content && !isLive ? (

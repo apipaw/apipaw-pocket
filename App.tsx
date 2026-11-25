@@ -36,6 +36,7 @@ import NodeGovernanceCard from './src/components/NodeGovernanceCard';
 import NodePayoutCard from './src/components/NodePayoutCard';
 import PricingApprovalCard from './src/components/PricingApprovalCard';
 import PublicNodeCard from './src/components/PublicNodeCard';
+import LazyMount from './src/components/LazyMount';
 import LiveSettlementFeed from './src/components/LiveSettlementFeed';
 import ModelUpsertCard from './src/components/ModelUpsertCard';
 import VoucherRedeemCard from './src/components/VoucherRedeemCard';
@@ -498,24 +499,49 @@ export default function App() {
               </View>
             </View>
 
+            {/* 阶段二十四 P1 · 首屏之外的重卡片**懒挂载**
+                此前这一列一次性挂载 11 张卡片 ⇒ 每张卡 mount 时各发一条 API
+                ⇒ 首屏同时等 11 条请求、渲染 11 棵树（低端机又慢又烫）。
+                现在：Playground 与 Analytics 保持**立即挂载**（e2e 首屏断言依赖它们，
+                且是用户第一眼要用的两块），其余重卡片改为"接近视口就挂载、
+                兜底最迟 X ms 内一定挂载"。
+                纪律：不删任何 data-testid、不改卡片内容与顺序。 */}
             <PlaygroundCard />
-            <PublicNodeCard />
+            <LazyMount fallbackMs={1200}>
+              <PublicNodeCard />
+            </LazyMount>
             {/* 阶段十七 P1：智能风控告警中心 + 场景 A/B 费用拆解（无 Key 时显示全网基准）*/}
-            <SmartAlertCard />
+            <LazyMount fallbackMs={1320}>
+              <SmartAlertCard />
+            </LazyMount>
             {/* 阶段十七 P0：买家密钥四重安全锁（冻结 / IP 白名单 / 模型白名单 / 扫码导入）*/}
-            <ApiKeyPolicyCard />
+            <LazyMount fallbackMs={1440}>
+              <ApiKeyPolicyCard />
+            </LazyMount>
             {/* 阶段十 P1：买家个人收支账单明细（折叠面板，9 位小数）*/}
-            <BuyerLedgerCard />
+            <LazyMount fallbackMs={1560}>
+              <BuyerLedgerCard />
+            </LazyMount>
             {/* 阶段九 P0：全网实时推理与三方分账公示（公开数据）*/}
-            <LiveSettlementFeed />
+            <LazyMount fallbackMs={1680}>
+              <LiveSettlementFeed />
+            </LazyMount>
             {/* 阶段十八 P0-P2：PoI 推理证明 + 默克尔状态根（公开数据 + 本地验真）*/}
-            <PoiConsensusCard />
+            <LazyMount fallbackMs={1800}>
+              <PoiConsensusCard />
+            </LazyMount>
             {/* 阶段十九 P0-P2：Model DAO 治理锁 + B2B 企业发票 / USDT 储值申报*/}
-            <DaoAndEnterpriseCard />
+            <LazyMount fallbackMs={1920}>
+              <DaoAndEnterpriseCard />
+            </LazyMount>
             {/* 阶段二十 P0/P2：Pipeline Mesh 异构算力网格 + 多网关容灾联邦 + 白皮书 v3.0 合规大盘*/}
-            <MeshAndFederationCard />
+            <LazyMount fallbackMs={2040}>
+              <MeshAndFederationCard />
+            </LazyMount>
             {/* 阶段十 P2：全网算力节点贡献排行榜（公开数据）*/}
-            <NodeLeaderboardCard />
+            <LazyMount fallbackMs={2160}>
+              <NodeLeaderboardCard />
+            </LazyMount>
             <AnalyticsCard />
           </View>
         ) : (
@@ -673,12 +699,22 @@ export default function App() {
 
             {hostTab === 'STUDIO' && (
               <View style={styles.column}>
-                <ModelStudioCard />
+                {/* 阶段二十四 P1：切到本页时**懒挂载**这几张重卡片
+                    （切一次 tab 不再同时打 4 条重请求；兜底 800ms 内必挂）。*/}
+                <LazyMount fallbackMs={800}>
+                  <ModelStudioCard />
+                </LazyMount>
                 {/* 阶段九 P1：网页自助上架/配置推理模型（OWNER）*/}
-                <ModelUpsertCard />
-                <PipelineMeshCard />
+                <LazyMount fallbackMs={900}>
+                  <ModelUpsertCard />
+                </LazyMount>
+                <LazyMount fallbackMs={1000}>
+                  <PipelineMeshCard />
+                </LazyMount>
                 {/* 阶段十二 P2：黄金 SFT/DPO 微调语料工坊（OWNER）*/}
-                <GoldenDatasetCard />
+                <LazyMount fallbackMs={1100}>
+                  <GoldenDatasetCard />
+                </LazyMount>
               </View>
             )}
 
@@ -692,28 +728,52 @@ export default function App() {
 
             {hostTab === 'GOVERNANCE' && (
               <View style={styles.column}>
-                <NodeGovernanceCard />
+                {/* 阶段二十四 P1 · 治理页有 11 张重卡片 ⇒ 懒挂载，
+                    避免"点一次 tab 就同时发 11 条请求"。兜底 800~2000ms 内必挂。*/}
+                <LazyMount fallbackMs={800}>
+                  <NodeGovernanceCard />
+                </LazyMount>
                 {/* 阶段十七 P2：网关内容安全拦截器看板（命中即 400，零扣费）*/}
-                <ModerationBlocksCard />
+                <LazyMount fallbackMs={900}>
+                  <ModerationBlocksCard />
+                </LazyMount>
                 {/* 阶段十八 P0-P2：PoI 验真看板 + 模拟欺诈演练（Slashing 扣罚）*/}
-                <PoiConsensusCard owner />
+                <LazyMount fallbackMs={1000}>
+                  <PoiConsensusCard owner />
+                </LazyMount>
                 {/* 阶段十九 P0-P2：Model DAO 治理台 + PAWMODEL 导入 + USDT 储值审批台（OWNER）*/}
-                <DaoAndEnterpriseCard owner />
+                <LazyMount fallbackMs={1100}>
+                  <DaoAndEnterpriseCard owner />
+                </LazyMount>
                 {/* 阶段二十 P0/P2：Mesh 合体集群组建演练（OWNER）+ 联邦合规大盘 */}
-                <MeshAndFederationCard owner />
-                <PricingApprovalCard />
+                <LazyMount fallbackMs={1200}>
+                  <MeshAndFederationCard owner />
+                </LazyMount>
+                <LazyMount fallbackMs={1300}>
+                  <PricingApprovalCard />
+                </LazyMount>
                 {/* 阶段九 P2/P3：充值卡密签发 + 提现审批台（OWNER）*/}
-                <VoucherIssueCard />
+                <LazyMount fallbackMs={1400}>
+                  <VoucherIssueCard />
+                </LazyMount>
                 {/* 阶段十一 P1：与审批台同页联动 —— 批准/驳回后收益面板即时刷新 */}
-                <EarningsWithdrawCard
-                  onSubmitted={bumpWithdrawRefresh}
-                  refreshKey={withdrawRefreshKey}
-                />
-                <WithdrawalApprovalCard onDecided={bumpWithdrawRefresh} />
+                <LazyMount fallbackMs={1500}>
+                  <EarningsWithdrawCard
+                    onSubmitted={bumpWithdrawRefresh}
+                    refreshKey={withdrawRefreshKey}
+                  />
+                </LazyMount>
+                <LazyMount fallbackMs={1600}>
+                  <WithdrawalApprovalCard onDecided={bumpWithdrawRefresh} />
+                </LazyMount>
                 {/* 阶段九 P0：业主视角同样看得见全网分账公示 */}
-                <LiveSettlementFeed />
+                <LazyMount fallbackMs={1700}>
+                  <LiveSettlementFeed />
+                </LazyMount>
                 {/* 阶段十 P2：业主视角同样看得见全网算力节点排行榜 */}
-                <NodeLeaderboardCard />
+                <LazyMount fallbackMs={1800}>
+                  <NodeLeaderboardCard />
+                </LazyMount>
               </View>
             )}
           </View>

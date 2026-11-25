@@ -7,6 +7,7 @@ import {
   View,
 } from 'react-native';
 import { RecentSettlement, describeCloudError, fetchRecentSettlements } from '../api/cloudClient';
+import { useVisibilityInterval } from '../hooks/useVisibilityInterval';
 import { colors, fontSize, radius, spacing } from '../theme';
 
 /**
@@ -53,13 +54,15 @@ const LiveSettlementFeed: React.FC = () => {
     }
   }, []);
 
+  // 阶段二十四 P1 · 可见性感知轮询
+  // 旧写法：无论页面是否可见都按 REFRESH_MS 轮询（切到别的标签页照样打源站）。
+  // 现在：后台/隐藏 ⇒ 定时器**完全停掉**；回到前台立刻补刷一次再恢复节奏。
   useEffect(() => {
     void load();
-    const timer = setInterval(() => {
-      void load();
-    }, REFRESH_MS);
-    return () => clearInterval(timer);
   }, [load]);
+  useVisibilityInterval(() => {
+    void load();
+  }, REFRESH_MS);
 
   return (
     <View style={styles.card} testID="live-settle-card" id="apx-glass-live-settle">

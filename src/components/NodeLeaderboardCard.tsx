@@ -7,6 +7,7 @@ import {
   View,
 } from 'react-native';
 import { LeaderboardNode, describeCloudError, fetchNodeLeaderboard } from '../api/cloudClient';
+import { useVisibilityInterval } from '../hooks/useVisibilityInterval';
 import { colors, fontSize, radius, spacing } from '../theme';
 
 /**
@@ -49,13 +50,13 @@ const NodeLeaderboardCard: React.FC = () => {
     }
   }, []);
 
+  // 阶段二十四 P1 · 可见性感知轮询（后台停表，回前台补刷一次）
   useEffect(() => {
     void load();
-    const timer = setInterval(() => {
-      void load();
-    }, REFRESH_MS);
-    return () => clearInterval(timer);
   }, [load]);
+  useVisibilityInterval(() => {
+    void load();
+  }, REFRESH_MS);
 
   return (
     <View style={styles.card} testID="node-leaderboard-card" id="apx-glass-node-leaderboard">

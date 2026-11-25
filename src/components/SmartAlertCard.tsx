@@ -12,6 +12,7 @@ import {
   describeCloudError,
   fetchOverviewAnalytics,
 } from '../api/cloudClient';
+import { useVisibilityInterval } from '../hooks/useVisibilityInterval';
 import { usePawStore } from '../store/usePawStore';
 import { colors, fontSize, monoFont, radius, spacing } from '../theme';
 
@@ -70,13 +71,13 @@ const SmartAlertCard: React.FC = () => {
     }
   }, []);
 
+  // 阶段二十四 P1 · 可见性感知轮询（后台停表，回前台补刷一次）
   useEffect(() => {
     void load();
-    const timer = setInterval(() => {
-      void load();
-    }, REFRESH_INTERVAL_MS);
-    return () => clearInterval(timer);
   }, [load]);
+  useVisibilityInterval(() => {
+    void load();
+  }, REFRESH_INTERVAL_MS);
 
   const a = data?.scenario_a;
   const b = data?.scenario_b;
