@@ -46,9 +46,20 @@ const splitLabel = (sp: MeshLayerSplit, index: number): string => {
  * 旧文案一律叫「锚点」，但服务端的 State Root **只通过公开 API 发布**，
  * 从没做过链上 / 第三方外部锚定 —— 叫「锚点」属于误导。
  * 这里把机器可读状态翻成**如实描述**。
+ *
+ * 阶段二十五 P0 追加：默克尔状态根已支持**外部锚定**（哈希链检查点 +
+ * 公开规范仓 Git commit 见证），于是有了四种诚实状态。
  */
 const anchorLabel = (status?: string): string => {
   switch (status) {
+    case 'externally_anchored_git':
+      return '已外部锚定（公开规范仓 Git commit 见证）';
+    case 'pending_reanchor':
+      return '状态根已前进，等待重新锚定';
+    case 'pending_first_anchor':
+      return '等待首次外部锚定';
+    case 'not_anchored_no_epoch':
+      return '尚无检查点（未锚定）';
     case 'published_via_api_not_externally_anchored':
       return '仅经公开 API 发布（未做链上 / 第三方外部锚定）';
     case '':
@@ -232,6 +243,23 @@ const MeshAndFederationCard: React.FC<Props> = ({ owner = false }) => {
               <Text style={styles.kpiValue}>{fed?.dao?.locked_model_count ?? 0}</Text>
             </View>
             <View style={styles.kpiCell}>
+              <Text style={styles.kpiLabel}>DAO 已执行提案</Text>
+              <Text style={styles.kpiValue}>
+                {fed?.business_facts?.dao_executed_proposals ?? 0}
+              </Text>
+            </View>
+            <View style={styles.kpiCell}>
+              <Text style={styles.kpiLabel}>外部锚定 Epoch</Text>
+              <Text
+                style={[
+                  styles.kpiValue,
+                  fed?.state_root?.chain_valid ? styles.kpiValueAccent : styles.kpiValueWarn,
+                ]}
+              >
+                #{fed?.state_root?.latest_epoch_no ?? 0}
+              </Text>
+            </View>
+            <View style={styles.kpiCell}>
               <Text style={styles.kpiLabel}>活跃集群</Text>
               <Text style={styles.kpiValue}>{fed?.mesh?.registered_cluster_count ?? 0}</Text>
             </View>
@@ -252,6 +280,12 @@ const MeshAndFederationCard: React.FC<Props> = ({ owner = false }) => {
             <Text style={styles.rootMeta}>
               锚定状态：{anchorLabel(fed?.state_root?.anchor_status)}
             </Text>
+            {!!fed?.state_root?.anchor_ref && (
+              <Text style={styles.rootMeta} testID="federation-anchor-ref">
+                外部见证：{short(fed.state_root.anchor_ref)}
+                {fed.state_root.chain_valid === false ? ' · 链校验未通过' : ''}
+              </Text>
+            )}
           </View>
 
           {/* ---- Mesh 分片拓扑 ---- */}
@@ -420,6 +454,8 @@ const styles = StyleSheet.create({
   kpiCell: { width: '31%', minWidth: 92, flexGrow: 1 },
   kpiLabel: { color: colors.textMuted, fontSize: 12, marginBottom: 2 },
   kpiValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '800' },
+  kpiValueAccent: { color: colors.accent },
+  kpiValueWarn: { color: colors.warn },
   kpiMono: { fontFamily: monoFont, fontSize: fontSize.xs },
 
   rootBox: {

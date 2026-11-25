@@ -2669,6 +2669,10 @@ export interface StateRootResponse {
   algorithm?: string;
   /** 阶段二十二 P2：锚定状态（当前仅通过 API 发布，未做外部锚定）。 */
   anchor_status?: string;
+  /** 阶段二十五 P0：默克尔状态根的**外部锚定**元信息（检查点链）。 */
+  anchor_ref?: string;
+  latest_epoch_no?: number;
+  chain_valid?: boolean;
 }
 
 /** 默克尔包含性证明（浏览器端可本地重算根并自证） */

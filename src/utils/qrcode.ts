@@ -12,8 +12,10 @@
  *   3. 功能图形（定位/校正/定时/格式信息/暗模块）
  *   4. 之字形布点 + 8 种掩码 + 惩罚分选优
  *
- * ⚠️ 正确性由 `scripts/verify_qrcode.mjs`（与 Python `qrcode` 库逐模块比对）
- *    在 CI/本地双重校验，改动后必须重跑。
+ * ⚠️ 正确性由 `e2e/unit-qrcode.mjs` 校验（阶段二十五 P2 补齐）：
+ *    本文件与 Python `qrcode` 库（**独立实现**）逐模块比对，基准数据在
+ *    `e2e/fixtures/qrcode-reference.json`；该用例已接入 CI
+ *    （`.github/workflows/ci.yml` 跑全部 `e2e/unit-*.mjs`），改动后必须重跑。
  */
 
 export type ECCLevel = 'L' | 'M' | 'Q' | 'H';
