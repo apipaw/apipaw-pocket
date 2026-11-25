@@ -6,7 +6,7 @@ name: APIPaw Pocket CI
 # 之前的问题（2026-11-20 审计 §"工程纪律只在人脑里"）：
 #   本仓库的 e2e/ 下有 30+ 个脚本，但**没有一个在 CI 里跑过**；
 #   更要紧的是 —— `expo export` 的产物是**部署到源站的那份静态文件**，
-#   体积是硬指标（两站 gzip < 400KB），此前每次发布都靠人工目测。
+#   体积是硬指标（两站 gzip < 340KB，阶段二十五 P2 收紧），此前每次发布都靠人工目测。
 #   ⇒ "打包成功"和"体积达标"必须由机器判定。
 
 on:
@@ -53,6 +53,9 @@ jobs:
         run: npm run typecheck
 
       - name: Local unit tests (纯本地，无需网络/浏览器)
+        # 阶段二十五 P2 新增 `e2e/unit-qrcode.mjs`（手写二维码编码器 vs 独立参照实现
+        # 逐模块比对）—— 已被下面的 `e2e/unit-*.mjs` 通配符自动纳入，
+        # 无需再单独登记一行（新增用例只要遵守命名约定即自动进 CI）。
         run: |
           set -o pipefail
           status=0
@@ -72,12 +75,14 @@ jobs:
       - name: Gzip precompress
         run: npm run build:web:gzip
 
-      - name: Assert gzipped bundle < 400KB
+      - name: Assert gzipped bundle < 340KB
         run: |
           node - <<'JS'
           const fs = require('fs');
           const path = require('path');
-          const LIMIT = 400 * 1024;
+          // 阶段二十五 P2：把闸门从 400KB 收紧到 340KB（当前实测 329.4KB），
+          // 让"体积达标"由机器判定，而不是靠人工目测。
+          const LIMIT = 340 * 1024;
           const root = path.join(process.cwd(), 'dist');
           if (!fs.existsSync(root)) { console.error('[FATAL] 没有 dist 产物'); process.exit(1); }
           const files = [];
@@ -94,8 +99,8 @@ jobs:
           const biggest = files[0];
           console.log(`[info] 最大的 gz 产物: ${biggest.p} = ${(biggest.size / 1024).toFixed(1)} KB`);
           if (biggest.size >= LIMIT) {
-            console.error(`[FATAL] 主 bundle 压缩后 ${(biggest.size / 1024).toFixed(1)} KB ≥ 400 KB`);
+            console.error(`[FATAL] 主 bundle 压缩后 ${(biggest.size / 1024).toFixed(1)} KB ≥ 340 KB`);
             process.exit(1);
           }
-          console.log(`[ok] 主 bundle 压缩后 ${(biggest.size / 1024).toFixed(1)} KB < 400 KB`);
+          console.log(`[ok] 主 bundle 压缩后 ${(biggest.size / 1024).toFixed(1)} KB < 340 KB`);
           JS
