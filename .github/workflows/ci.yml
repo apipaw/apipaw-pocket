@@ -30,15 +30,20 @@ env:
 
 jobs:
   build:
-    name: Build + Test (Node 20)
+    name: Build + Test (Node 22)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node 20
+      # ⚠️ Node 版本说明（阶段二十三 CI 踩坑）：
+      #   `e2e/unit-*.mjs` 直接 `import ../src/**/*.ts` —— 依赖 **原生类型剥离**，
+      #   该能力自 Node 22.18 起默认开启（Node 20 会直接报
+      #   ERR_UNKNOWN_FILE_EXTENSION ".ts"）。
+      #   故 CI 用 Node 22（LTS，Expo SDK 58 官方支持区间 20/22）。
+      - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - name: Install dependencies
