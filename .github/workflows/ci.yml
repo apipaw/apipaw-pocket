@@ -1,0 +1,96 @@
+name: APIPaw Pocket CI
+
+# 阶段二十三 P0 · 把 Pocket 仓的**纯本地单测 + 类型检查 + Web 构建 + 体积闸门**
+# 锁进 GitHub Actions。
+#
+# 之前的问题（2026-11-20 审计 §"工程纪律只在人脑里"）：
+#   本仓库的 e2e/ 下有 30+ 个脚本，但**没有一个在 CI 里跑过**；
+#   更要紧的是 —— `expo export` 的产物是**部署到源站的那份静态文件**，
+#   体积是硬指标（两站 gzip < 400KB），此前每次发布都靠人工目测。
+#   ⇒ "打包成功"和"体积达标"必须由机器判定。
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apipaw-pocket-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "1"
+  EXPO_NO_TELEMETRY: "1"
+  NODE_OPTIONS: --max-old-space-size=4096
+
+jobs:
+  build:
+    name: Build + Test (Node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Local unit tests (纯本地，无需网络/浏览器)
+        run: |
+          set -o pipefail
+          status=0
+          for f in e2e/unit-*.mjs; do
+            echo "::group::$f"
+            if ! node "$f"; then
+              echo "::error::$f failed"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status
+
+      - name: Web export
+        run: npm run build:web
+
+      - name: Gzip precompress
+        run: npm run build:web:gzip
+
+      - name: Assert gzipped bundle < 400KB
+        run: |
+          node - <<'JS'
+          const fs = require('fs');
+          const path = require('path');
+          const LIMIT = 400 * 1024;
+          const root = path.join(process.cwd(), 'dist');
+          if (!fs.existsSync(root)) { console.error('[FATAL] 没有 dist 产物'); process.exit(1); }
+          const files = [];
+          (function walk(dir) {
+            for (const name of fs.readdirSync(dir)) {
+              const p = path.join(dir, name);
+              const st = fs.statSync(p);
+              if (st.isDirectory()) walk(p);
+              else if (name.endsWith('.gz')) files.push({ p, size: st.size });
+            }
+          })(root);
+          if (!files.length) { console.error('[FATAL] 没有生成 .gz 预压缩产物'); process.exit(1); }
+          files.sort((a, b) => b.size - a.size);
+          const biggest = files[0];
+          console.log(`[info] 最大的 gz 产物: ${biggest.p} = ${(biggest.size / 1024).toFixed(1)} KB`);
+          if (biggest.size >= LIMIT) {
+            console.error(`[FATAL] 主 bundle 压缩后 ${(biggest.size / 1024).toFixed(1)} KB ≥ 400 KB`);
+            process.exit(1);
+          }
+          console.log(`[ok] 主 bundle 压缩后 ${(biggest.size / 1024).toFixed(1)} KB < 400 KB`);
+          JS
