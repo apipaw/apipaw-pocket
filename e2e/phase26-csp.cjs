@@ -122,7 +122,11 @@ function check(name, ok, detail = '') {
   let directDetail = '';
   try {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'p26direct-'));
-    const args = ['-s', '-m', '30', '-o', path.join(dir, 'b'), '-w', '%{http_code}',
+    // ⚠️ `-k`（跳过证书校验）是**故意**的：源站证书签的是 apipaw.com 域名，
+    //    用 IP 直连时证书主机名必然不匹配 ⇒ 不加 -k 时 curl 会以 exit 60
+    //    （SSL 证书校验失败）退出，测到的是 TLS 层而不是我们要验的**访问控制层**。
+    //    这里要验的是「直连源站 + 伪造 Host ⇒ 403」，故必须 -k 才能拿到 HTTP 状态码。
+    const args = ['-s', '-k', '-m', '30', '-o', path.join(dir, 'b'), '-w', '%{http_code}',
       '--socks5-hostname', SOCKS,
       '-H', 'Host: console.apipaw.com',
       `https://${ORIGIN_IP}/`];
