@@ -104,3 +104,22 @@ jobs:
           }
           console.log(`[ok] 主 bundle 压缩后 ${(biggest.size / 1024).toFixed(1)} KB < 340 KB`);
           JS
+
+  # 阶段二十六 P1 · 双站 CSP 线上快检（advisory）
+  #
+  # ⚠️ 诚实口径：这一档是**线上巡检**，依赖 runner 到生产域名的网络可达性 ——
+  #    网络抖动会造出**假红**，所以用 continue-on-error 降级为告警，
+  #    不让它阻塞主干。真正的**硬闸**在上面的 `e2e/unit-csp-policy.mjs`
+  #    （静态校验仓库真源 deploy/nginx/*.conf：每个 location 都挂 CSP、
+  #     两个 server 块都挂源站白名单）。
+  online-csp:
+    name: Online CSP header check (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Assert both sites serve Content-Security-Policy
+        run: node e2e/csp-header-check.mjs
