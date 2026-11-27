@@ -395,6 +395,16 @@ export default function App() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
       >
+        {/* 阶段二十六 P2 · 封闭公测边界声明（B3 / B6 / B7）
+            为什么必须**摆在用户眼前**：单户 $100 储值上限、不提供商用 SLA 承诺
+            如果只写在运营手册里，就只是运营口径而不是产品承诺 —— 用户按商用预期
+            接入后才发现限制，纠纷成本远高于一行小字。
+            体量纪律：一行小字（< 200 字节），不进任何网络请求，
+            不影响两站 gzip < 340KB 的体积闸门。 */}
+        <View style={styles.betaNotice} testID="beta-boundary-notice">
+          <Text style={styles.betaNoticeText}>封闭公测期：单户储值上限 $100 · 不提供商用 SLA 承诺</Text>
+        </View>
+
         {roleMode === 'BUYER' ? (
           <View style={styles.column}>
             {/* 仪表盘首行：余额大卡 + 三块指标 */}
@@ -998,6 +1008,17 @@ const styles = StyleSheet.create({
     maxWidth: 1180,
   },
   column: { gap: spacing.lg },
+
+  /* 阶段二十六 P2：封闭公测边界声明（一行小字，零网络开销） */
+  betaNotice: {
+    borderWidth: 1,
+    borderColor: colors.warn,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  betaNoticeText: { color: colors.textSecondary, fontSize: fontSize.sm, lineHeight: 19 },
 
   dashRow: { flexDirection: 'row', gap: spacing.lg, alignItems: 'stretch' },
   dashRowNarrow: { flexDirection: 'column' },
