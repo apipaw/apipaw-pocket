@@ -244,10 +244,22 @@ const styles = StyleSheet.create({
   barA: { backgroundColor: colors.chartBase, height: 12 },
   barB: { backgroundColor: colors.chartCreator, height: 12 },
 
-  legendRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+    rowGap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { color: colors.textSecondary, fontSize: fontSize.xs, fontFamily: monoFont },
+  legendText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.xs,
+    fontFamily: monoFont,
+    flexShrink: 1,
+  },
 
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
   kpi: {

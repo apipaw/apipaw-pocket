@@ -32,6 +32,7 @@ import {
   upsertCuratedGolden,
   upsertRlaifTask,
 } from '../api/cloudClient';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { colors, fontSize, radius, spacing } from '../theme';
 
 /** 阶段十五 P1：只有这三类样本**允许删除**（真实买家评价服务端会拒删）。 */
@@ -58,6 +59,8 @@ const DELETABLE_PREFIXES = ['curated:', 'rlaif:', 'verify-'];
  * ⚠️ 语料里**不含**任何明文密钥：服务端落库前已把 `paw-sk-...` 之类打码。
  */
 const GoldenDatasetCard: React.FC = () => {
+  /** 手机档：长按钮行改为换行堆叠 */
+  const isMobile = useIsMobile();
   const [summary, setSummary] = useState<DatasetSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -552,7 +555,7 @@ const GoldenDatasetCard: React.FC = () => {
             </View>
           ) : null}
 
-          <View style={styles.actions}>
+          <View style={[styles.actions, isMobile && styles.actionsNarrow]}>
             <TouchableOpacity
               style={[styles.exportBtn, busy === 'sft' && styles.btnDisabled]}
               onPress={() => void handleExport('sft')}
@@ -594,9 +597,9 @@ const GoldenDatasetCard: React.FC = () => {
               testID="golden-dataset-base-model"
             />
           </View>
-          <View style={styles.actions}>
+          <View style={[styles.actions, isMobile && styles.actionsNarrow]}>
             <TouchableOpacity
-              style={[styles.exportBtnAlt, busy === 'modelfile' && styles.btnDisabled]}
+              style={[styles.exportBtnAlt, isMobile && styles.exportBtnAltNarrow, busy === 'modelfile' && styles.btnDisabled]}
               onPress={() => void handleGenerate('modelfile')}
               disabled={busy !== null}
               activeOpacity={0.8}
@@ -607,7 +610,7 @@ const GoldenDatasetCard: React.FC = () => {
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.exportBtnAlt, busy === 'lora_script' && styles.btnDisabled]}
+              style={[styles.exportBtnAlt, isMobile && styles.exportBtnAltNarrow, busy === 'lora_script' && styles.btnDisabled]}
               onPress={() => void handleGenerate('lora_script')}
               disabled={busy !== null}
               activeOpacity={0.8}
@@ -697,9 +700,9 @@ const GoldenDatasetCard: React.FC = () => {
                 通过率 {((rlaifStats?.pass_rate ?? 0) * 100).toFixed(1)}%
               </Text>
             </View>
-            <View style={styles.actions}>
+            <View style={[styles.actions, isMobile && styles.actionsNarrow]}>
               <TouchableOpacity
-                style={[styles.exportBtn, rlaifRunning && styles.btnDisabled]}
+                style={[styles.exportBtn, isMobile && styles.exportBtnNarrow, rlaifRunning && styles.btnDisabled]}
                 onPress={() => void handleRlaifRun()}
                 disabled={rlaifRunning}
                 activeOpacity={0.8}
@@ -710,7 +713,7 @@ const GoldenDatasetCard: React.FC = () => {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.exportBtnAlt, rlaifRunning && styles.btnDisabled]}
+                style={[styles.exportBtnAlt, isMobile && styles.exportBtnAltNarrow, rlaifRunning && styles.btnDisabled]}
                 onPress={() => void loadRlaif()}
                 disabled={rlaifRunning}
                 activeOpacity={0.8}
@@ -767,7 +770,7 @@ const GoldenDatasetCard: React.FC = () => {
             本评测**恒不写库**（只读黄金样本 + 内存判分），跑多少次都不污染语料池。
           </Text>
         </View>
-        <View style={styles.actions}>
+        <View style={[styles.actions, isMobile && styles.actionsNarrow]}>
           <TouchableOpacity
             style={[styles.exportBtn, benchRunning && styles.btnDisabled]}
             onPress={() => void handleBenchmarkRun()}
@@ -921,7 +924,7 @@ const GoldenDatasetCard: React.FC = () => {
               autoCorrect={false}
               testID="golden-dataset-curate-model"
             />
-            <View style={styles.actions}>
+            <View style={[styles.actions, isMobile && styles.actionsNarrow]}>
               <TouchableOpacity
                 style={[styles.exportBtn, curateSaving && styles.btnDisabled]}
                 onPress={() => void handleCurateSave()}
@@ -1029,7 +1032,7 @@ const GoldenDatasetCard: React.FC = () => {
               keyboardType="number-pad"
               testID="golden-dataset-rlaif-task-minlength"
             />
-            <View style={styles.actions}>
+            <View style={[styles.actions, isMobile && styles.actionsNarrow]}>
               <TouchableOpacity
                 style={[styles.exportBtn, taskSaving && styles.btnDisabled]}
                 onPress={() => void handleTaskSave()}
@@ -1104,7 +1107,7 @@ const GoldenDatasetCard: React.FC = () => {
             <ScrollView style={styles.previewBox} testID="golden-dataset-preview-body">
               <Text style={styles.previewText}>{preview?.content ?? ''}</Text>
             </ScrollView>
-            <View style={styles.actions}>
+            <View style={[styles.actions, isMobile && styles.actionsNarrow]}>
               <TouchableOpacity
                 style={styles.exportBtnAlt}
                 onPress={() => void handlePreviewCopy()}
@@ -1203,6 +1206,8 @@ const styles = StyleSheet.create({
   modelChipText: { color: colors.textSecondary, fontSize: fontSize.xs },
 
   actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  /** 手机档：按钮行允许换行（长标签在窄屏放不下会顶出卡片） */
+  actionsNarrow: { flexWrap: 'wrap', rowGap: spacing.sm },
 
   evoHeader: { marginTop: spacing.md },
   evoTitle: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: '800' },
@@ -1254,7 +1259,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.accent,
   },
-  exportBtnText: { color: '#04211A', fontSize: fontSize.xs, fontWeight: '800' },
+  exportBtnText: { color: '#04211A', fontSize: fontSize.xs, fontWeight: '800', flexShrink: 1 },
   exportBtnAlt: {
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
@@ -1262,7 +1267,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.purple,
   },
-  exportBtnAltText: { color: colors.purple, fontSize: fontSize.xs, fontWeight: '800' },
+  exportBtnAltText: { color: colors.purple, fontSize: fontSize.xs, fontWeight: '800', flexShrink: 1 },
+  /** 手机档：按钮可收缩，按钮内文字允许换行 */
+  exportBtnNarrow: { flexShrink: 1, maxWidth: '100%' },
+  exportBtnAltNarrow: { flexShrink: 1, maxWidth: '100%' },
   btnDisabled: { opacity: 0.5 },
 
   noticeText: { color: colors.accent, fontSize: fontSize.xs, marginTop: spacing.sm, fontWeight: '700' },

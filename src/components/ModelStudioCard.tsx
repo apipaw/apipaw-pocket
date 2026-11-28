@@ -23,6 +23,7 @@ import {
   submitCreatorPriceRequest,
 } from '../api/cloudClient';
 import Slider from './Slider';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { colors, fontSize, radius, spacing } from '../theme';
 
 const MIN_VRAM_GB = 4;
@@ -66,6 +67,8 @@ const ModelStudioCard: React.FC = () => {
     setCreatorModelId,
     setTopologyModelId,
   } = usePawStore();
+  /** 手机档：元信息网格降单列、期望价输入框上下排列 */
+  const isMobile = useIsMobile();
 
   const [hfUrl, setHfUrl] = useState(DEFAULT_HF_URL);
   const [parsed, setParsed] = useState<ParsedModel | null>(null);
@@ -308,17 +311,17 @@ const ModelStudioCard: React.FC = () => {
         </View>
 
         <View style={styles.metaGrid}>
-          <View style={styles.metaCell}>
+          <View style={[styles.metaCell, isMobile && styles.metaCellNarrow]}>
             <Text style={styles.metaLabel}>平台提示词价</Text>
             <Text style={styles.metaValue} testID="studio-default-prompt-price">
               ${defaultPrompt.toFixed(2)}
             </Text>
           </View>
-          <View style={styles.metaCell}>
+          <View style={[styles.metaCell, isMobile && styles.metaCellNarrow]}>
             <Text style={styles.metaLabel}>平台输出价</Text>
             <Text style={styles.metaValue}>${defaultCompletion.toFixed(2)}</Text>
           </View>
-          <View style={styles.metaCell}>
+          <View style={[styles.metaCell, isMobile && styles.metaCellNarrow]}>
             <Text style={styles.metaLabel}>可申请区间</Text>
             <Text style={styles.metaValueSmall}>
               ${(pricing?.min_price_per_1k ?? 0).toFixed(2)} ~ $
@@ -333,10 +336,10 @@ const ModelStudioCard: React.FC = () => {
           ，OWNER 审批后才会生效 —— 审批前线上计费价分毫不动。
         </Text>
 
-        <View style={styles.priceRow}>
+        <View style={[styles.priceRow, isMobile && styles.priceRowNarrow]}>
           <TextInput
             testID="studio-want-prompt-price"
-            style={[styles.input, styles.priceInput]}
+            style={[styles.input, styles.priceInput, isMobile && styles.priceInputNarrow]}
             value={wantPrompt}
             onChangeText={setWantPrompt}
             placeholder={`期望提示词价（留空 = $${defaultPrompt.toFixed(2)}）`}
@@ -345,7 +348,7 @@ const ModelStudioCard: React.FC = () => {
           />
           <TextInput
             testID="studio-want-completion-price"
-            style={[styles.input, styles.priceInput]}
+            style={[styles.input, styles.priceInput, isMobile && styles.priceInputNarrow]}
             value={wantCompletion}
             onChangeText={setWantCompletion}
             placeholder={`期望输出价（留空 = $${defaultCompletion.toFixed(2)}）`}
@@ -405,31 +408,31 @@ const ModelStudioCard: React.FC = () => {
             </View>
 
             <View style={styles.metaGrid}>
-              <View style={styles.metaCell}>
+              <View style={[styles.metaCell, isMobile && styles.metaCellNarrow]}>
                 <Text style={styles.metaLabel}>架构</Text>
                 <Text style={styles.metaValue}>{parsed.architecture}</Text>
               </View>
-              <View style={styles.metaCell}>
+              <View style={[styles.metaCell, isMobile && styles.metaCellNarrow]}>
                 <Text style={styles.metaLabel}>隐藏层数</Text>
                 <Text style={[styles.metaValue, styles.metaValueAccent]}>
                   {parsed.num_hidden_layers}L
                 </Text>
               </View>
-              <View style={styles.metaCell}>
+              <View style={[styles.metaCell, isMobile && styles.metaCellNarrow]}>
                 <Text style={styles.metaLabel}>参数量</Text>
                 <Text style={styles.metaValue}>{parsed.total_params}</Text>
               </View>
-              <View style={styles.metaCell}>
+              <View style={[styles.metaCell, isMobile && styles.metaCellNarrow]}>
                 <Text style={styles.metaLabel}>上下文</Text>
                 <Text style={styles.metaValue}>
                   {(parsed.context_window / 1024).toFixed(0)}K
                 </Text>
               </View>
-              <View style={styles.metaCell}>
+              <View style={[styles.metaCell, isMobile && styles.metaCellNarrow]}>
                 <Text style={styles.metaLabel}>量化</Text>
                 <Text style={styles.metaValue}>{parsed.quantization}</Text>
               </View>
-              <View style={styles.metaCell}>
+              <View style={[styles.metaCell, isMobile && styles.metaCellNarrow]}>
                 <Text style={styles.metaLabel}>框架</Text>
                 <Text style={styles.metaValueSmall}>{parsed.framework}</Text>
               </View>
@@ -604,6 +607,14 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
     padding: spacing.sm,
   },
+  /** 手机档：元信息改为单列（31% + minWidth 96 在 375px 宽下排不下） */
+  metaCellNarrow: {
+    width: '100%',
+    minWidth: 0,
+    flexBasis: '100%',
+    flexGrow: 0,
+    flexShrink: 1,
+  },
   metaLabel: { color: colors.textMuted, fontSize: 12, marginBottom: 3 },
   metaValue: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700' },
   metaValueSmall: { color: colors.textPrimary, fontSize: 12, fontWeight: '600' },
@@ -656,7 +667,10 @@ const styles = StyleSheet.create({
   },
   priceHintStrong: { color: colors.purple, fontWeight: '700' },
   priceRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  /** 手机档：两个期望价输入框上下堆叠，避免 placeholder 撑破视口 */
+  priceRowNarrow: { flexDirection: 'column', gap: 0 },
   priceInput: { flex: 1, marginBottom: spacing.sm },
+  priceInputNarrow: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%' },
   secondaryBtn: {
     backgroundColor: colors.purpleSoft,
     borderRadius: radius.md,

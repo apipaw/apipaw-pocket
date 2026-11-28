@@ -114,7 +114,17 @@ const Slider: React.FC<SliderProps> = ({
           <View
             style={[
               styles.fill,
-              { width: thumbLeft + THUMB_SIZE / 2, backgroundColor: accentColor },
+              {
+                // 轨道的实际宽度 = touchArea 宽度 - 左右各 THUMB_SIZE/2 的外边距。
+                // 填充块若按 thumbLeft + THUMB_SIZE/2 算，在最大值时会比轨道宽 11px
+                // （原先靠 track 的 overflow:hidden 裁掉，视觉一致但 scrollWidth 会溢出）。
+                // 这里显式封顶 = 轨道宽度，渲染像素完全不变，却不再产生横向溢出。
+                width: Math.min(
+                  thumbLeft + THUMB_SIZE / 2,
+                  Math.max(0, trackWidth - THUMB_SIZE),
+                ),
+                backgroundColor: accentColor,
+              },
             ]}
           />
         </View>
