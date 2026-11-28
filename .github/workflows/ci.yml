@@ -123,3 +123,33 @@ jobs:
           node-version: "22"
       - name: Assert both sites serve Content-Security-Policy
         run: node e2e/csp-header-check.mjs
+
+  # 阶段二十七 P0 · 移动端布局反碰撞回归（advisory）
+  #
+  # ⚠️ 诚实口径：这一档需要**下载 Chromium**（~150MB），CI 时长与网络抖动都会放大，
+  #    所以同样用 continue-on-error 降级为告警，不阻塞主干。
+  #    它的价值在于「每次 PR 都能看到一份反碰撞报告」，而不是当硬闸。
+  #    本地硬验证：npm run build:web && node e2e/mobile-layout.cjs（退出码 1 = 有碰撞）
+  mobile-layout:
+    name: Mobile layout anti-collision (advisory)
+    # ⚠️ 必须钉 ubuntu-24.04 —— ubuntu-latest 现在是 26.04，
+    #    而 playwright 1.59.1 尚未提供 ubuntu26.04-x64 的 chromium 构建
+    #    （`npx playwright install` 会直接报 "Playwright does not support
+    #     chromium on ubuntu26.04-x64"）。
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright + Chromium
+        run: |
+          npm i --no-save playwright@1.59.1
+          npx playwright install --with-deps chromium
+      - name: Web export
+        run: npm run build:web
+      - name: Mobile layout audit (390x844 / 375x812)
+        run: node e2e/mobile-layout.cjs

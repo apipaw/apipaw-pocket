@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { HostTab, hydrateSession, usePawStore } from './src/store/usePawStore';
+import { useIsMobile } from './src/hooks/useIsMobile';
 import {
   claimTrialFaucet,
   describeFaucetError,
@@ -77,6 +78,18 @@ const HOST_TABS: Array<{ key: HostTab; label: string }> = [
 /** 仪表盘在窄屏降级为单列 */
 const WIDE_BREAKPOINT = 900;
 
+/**
+ * 手机断点（阶段二十七 P0）—— 窄于此宽度即进入「单列 + 允许换行」布局。
+ *
+ * 为什么要独立于 WIDE_BREAKPOINT：900px 决定的是「多列 vs 单列」，
+ * 而手机档要解决的是**另一个**问题 —— 固定 `flex: 1`（basis 0）在纵向
+ * 容器里会把子元素高度压成 0，内容溢出后互相穿插（余额卡压住算力节点卡）。
+ * 两件事必须分开判断，故设两个断点。
+ *
+ * 断点值与 `useIsMobile()` 共用同一份定义（src/hooks/useIsMobile.ts），
+ * 避免各组件各写一份 768 走偏。
+ */
+
 export default function App() {
   const {
     roleMode,
@@ -97,6 +110,8 @@ export default function App() {
   } = usePawStore();
   const { width } = useWindowDimensions();
   const wide = width >= WIDE_BREAKPOINT;
+  /** 手机档：顶栏折行、网格降单列、禁止 basis-0 的 flex 塌陷 */
+  const isMobile = useIsMobile();
 
   const [dashboard, setDashboard] = useState<OwnerDashboard | null>(null);
   const [revenue, setRevenue] = useState<OwnerRevenue | null>(null);
@@ -299,21 +314,21 @@ export default function App() {
       <View style={styles.gridBg} id="apx-grid" pointerEvents="none" />
 
       {/* ---------------- 顶栏 ---------------- */}
-      <View style={styles.header} id="apx-header">
-        <View style={styles.brandRow}>
+      <View style={[styles.header, isMobile && styles.headerNarrow]} id="apx-header">
+        <View style={[styles.brandRow, isMobile && styles.brandRowNarrow]}>
           <View style={styles.brandMark}>
             <Text style={styles.brandMarkText}>◆</Text>
           </View>
-          <View>
+          <View style={styles.brandTextCol}>
             <Text style={styles.brandTitle}>APIPaw Pocket</Text>
             <Text style={styles.brandSub}>DECENTRALIZED COMPUTE · DEPIN</Text>
           </View>
         </View>
 
-        <View style={styles.headerActions}>
+        <View style={[styles.headerActions, isMobile && styles.headerActionsNarrow]}>
           {/* 钱包会话入口（阶段四 P4）—— 业主身份走钱包签名，买家走右侧的 API Key */}
           <TouchableOpacity
-            style={styles.walletBtn}
+            style={[styles.walletBtn, isMobile && styles.headerBtnNarrow]}
             id="apx-glow-wallet"
             onPress={() => setWalletModalVisible(true)}
             activeOpacity={0.8}
@@ -332,7 +347,7 @@ export default function App() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.keyBtn}
+            style={[styles.keyBtn, isMobile && styles.headerBtnNarrow]}
             id="apx-glow-key"
             onPress={openKeyModal}
             activeOpacity={0.8}
@@ -347,7 +362,7 @@ export default function App() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.roleBtn}
+            style={[styles.roleBtn, isMobile && styles.headerBtnNarrow]}
             id="apx-glow-role"
             onPress={() => setRoleMode(roleMode === 'BUYER' ? 'HOST' : 'BUYER')}
             activeOpacity={0.8}
@@ -360,7 +375,7 @@ export default function App() {
 
           {/* 阶段十 P0：业主管理口令解锁（没有钱包插件也能进 OWNER 视角）*/}
           <TouchableOpacity
-            style={styles.passkeyBtn}
+            style={[styles.passkeyBtn, isMobile && styles.headerBtnNarrow]}
             id="apx-glow-passkey"
             onPress={() => setPasskeyModalVisible(true)}
             activeOpacity={0.8}
@@ -413,8 +428,8 @@ export default function App() {
                 webId="apx-grad-border-balance"
                 style={[styles.balanceCard, !wide && styles.balanceCardNarrow]}
               >
-                <View style={styles.balanceHead}>
-                  <Text style={styles.eyebrow} id="apx-eyebrow-balance">
+                <View style={[styles.balanceHead, isMobile && styles.balanceHeadNarrow]}>
+                  <Text style={[styles.eyebrow, styles.eyebrowShrink]} id="apx-eyebrow-balance">
                     API 账户余额与 Token 额度
                   </Text>
                   <View style={styles.balanceLive}>
@@ -464,30 +479,31 @@ export default function App() {
                 {/* 阶段九 P2：兑换充值码（买家自助储值入口）*/}
                 <VoucherRedeemCard />
 
-                <View style={styles.balanceMeta}>
-                  <View style={styles.balanceMetaCell}>
+                <View style={[styles.balanceMeta, isMobile && styles.balanceMetaNarrow]}>
+                  <View style={[styles.balanceMetaCell, isMobile && styles.balanceMetaCellKey]}>
                     <Text style={styles.balanceMetaLabel}>当前密钥</Text>
-                    <Text style={styles.balanceMetaValue} id="apx-mono-key apx-balance-meta-value" numberOfLines={1}>
+                    <Text style={[styles.balanceMetaValue, isMobile && styles.balanceMetaValueNarrow]} id="apx-mono-key apx-balance-meta-value" numberOfLines={1}>
                       {maskedKey}
                     </Text>
                   </View>
-                  <View style={styles.balanceMetaCell}>
+                  <View style={[styles.balanceMetaCell, isMobile && styles.balanceMetaCellHalf]}>
                     <Text style={styles.balanceMetaLabel}>今日消费</Text>
-                    <Text style={styles.balanceMetaValue} id="apx-balance-meta-value">${spentTodayUsd.toFixed(4)}</Text>
+                    <Text style={[styles.balanceMetaValue, isMobile && styles.balanceMetaValueNarrow]} id="apx-balance-meta-value">${spentTodayUsd.toFixed(4)}</Text>
                   </View>
-                  <View style={styles.balanceMetaCell}>
+                  <View style={[styles.balanceMetaCell, isMobile && styles.balanceMetaCellHalf]}>
                     <Text style={styles.balanceMetaLabel}>单日上限</Text>
-                    <Text style={styles.balanceMetaValue} id="apx-balance-meta-value">${dailyLimitUsd.toFixed(0)}</Text>
+                    <Text style={[styles.balanceMetaValue, isMobile && styles.balanceMetaValueNarrow]} id="apx-balance-meta-value">${dailyLimitUsd.toFixed(0)}</Text>
                   </View>
                 </View>
               </Surface>
 
-              <View style={styles.dashSide}>
+              <View style={[styles.dashSide, isMobile && styles.dashSideNarrow]}>
                 <StatTile
                   label="在线算力节点"
                   value={`${network?.online_nodes ?? 0}`}
                   unit="台"
                   tone="emerald"
+                  style={isMobile ? styles.statTileNarrow : undefined}
                   hint={
                     network
                       ? `可派 ${network.dispatchable_nodes} 台 · 可服务 ${network.servable_models} 个模型`
@@ -498,12 +514,14 @@ export default function App() {
                   label="今日已消费"
                   value={`$${spentTodayUsd.toFixed(4)}`}
                   tone="cyan"
+                  style={isMobile ? styles.statTileNarrow : undefined}
                   hint="按 API Key 实时结算"
                 />
                 <StatTile
                   label="单日消费上限"
                   value={`$${dailyLimitUsd.toFixed(0)}`}
                   tone="violet"
+                  style={isMobile ? styles.statTileNarrow : undefined}
                   hint="可在用量面板中调整"
                 />
               </View>
@@ -557,14 +575,14 @@ export default function App() {
         ) : (
           <View style={styles.column}>
             {/* HOST 分段切换 */}
-            <View style={styles.segmentWrap} testID="host-tabs">
+            <View style={[styles.segmentWrap, isMobile && styles.segmentWrapNarrow]} testID="host-tabs">
               {HOST_TABS.map((tab) => {
                 const active = tab.key === hostTab;
                 return (
                   <TouchableOpacity
                     key={tab.key}
                     testID={`host-tab-${tab.key}`}
-                    style={[styles.segment, active && styles.segmentActive]}
+                    style={[styles.segment, isMobile && styles.segmentNarrow, active && styles.segmentActive]}
                     onPress={() => setHostTab(tab.key)}
                     activeOpacity={0.75}
                   >
@@ -583,7 +601,7 @@ export default function App() {
                     <Text style={styles.eyebrow} id="apx-eyebrow-nodes">
                       算力节点远控面板
                     </Text>
-                    <View style={styles.nodePanelStats}>
+                    <View style={[styles.nodePanelStats, isMobile && styles.nodePanelStatsNarrow]}>
                       <View style={styles.nodePanelStat}>
                         <Text style={styles.nodePanelValue}>
                           {network?.online_nodes ?? dashboard?.active_nodes_online ?? 0}
@@ -798,7 +816,7 @@ export default function App() {
         onRequestClose={() => setWalletModalVisible(false)}
       >
         <View style={styles.modalBackdrop} id="apx-modal">
-          <View style={styles.modalCard} id="apx-modal-card">
+          <View style={[styles.modalCard, isMobile && styles.modalCardNarrow]} id="apx-modal-card">
             <Text style={styles.modalTitle}>钱包登录</Text>
             <Text style={styles.modalHint}>
               钱包私钥始终留在你的设备里，APIPaw 只拿到「签名者地址」与一份 2 小时有效的会话令牌。
@@ -809,7 +827,7 @@ export default function App() {
                 loadData();
               }}
             />
-            <View style={styles.modalActions}>
+            <View style={[styles.modalActions, isMobile && styles.modalActionsNarrow]}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnGhost]}
                 onPress={() => setWalletModalVisible(false)}
@@ -830,7 +848,7 @@ export default function App() {
         onRequestClose={() => setPasskeyModalVisible(false)}
       >
         <View style={styles.modalBackdrop} id="apx-modal">
-          <View style={styles.modalCard} id="apx-modal-card">
+          <View style={[styles.modalCard, isMobile && styles.modalCardNarrow]} id="apx-modal-card">
             <Text style={styles.modalTitle}>业主管理口令解锁</Text>
             <Text style={styles.modalHint}>
               没有钱包插件时的备用入口：输入管理口令换取一个标准 OWNER 会话
@@ -844,7 +862,7 @@ export default function App() {
                 void loadRevenue();
               }}
             />
-            <View style={styles.modalActions}>
+            <View style={[styles.modalActions, isMobile && styles.modalActionsNarrow]}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnGhost]}
                 onPress={() => setPasskeyModalVisible(false)}
@@ -865,7 +883,7 @@ export default function App() {
         onRequestClose={() => setKeyModalVisible(false)}
       >
         <View style={styles.modalBackdrop} id="apx-modal">
-          <View style={styles.modalCard} id="apx-modal-card">
+          <View style={[styles.modalCard, isMobile && styles.modalCardNarrow]} id="apx-modal-card">
             <Text style={styles.modalTitle}>设置 API Key</Text>
             <Text style={styles.modalHint}>
               密钥将保存在本机浏览器 (localStorage)，仅用于向云端网关 https://cloud.apipaw.com 发起请求
@@ -881,7 +899,7 @@ export default function App() {
               autoCorrect={false}
               testID="api-key-input"
             />
-            <View style={styles.modalActions}>
+            <View style={[styles.modalActions, isMobile && styles.modalActionsNarrow]}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnGhost]}
                 onPress={handleClearKey}
@@ -931,7 +949,22 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     gap: spacing.md,
   },
+  /**
+   * 手机档顶栏（阶段二十七 P0）—— **上下两行**：
+   * 第一行只放品牌标识，第二行放 4 个操作按钮（可换行）。
+   * 之前是单行硬挤，390px 下整组按钮溢出到 442px 并压住品牌文字。
+   */
+  headerNarrow: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+  },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
+  brandRowNarrow: { flexShrink: 0, width: '100%' },
+  /** 品牌文字列必须允许收缩，否则长副标题会把整行撑破 */
+  brandTextCol: { flexShrink: 1 },
   brandMark: {
     width: 30,
     height: 30,
@@ -952,6 +985,17 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 0 },
+  /** 手机档：按钮组独占一行并允许换行（4 个按钮必然放不下 358px）*/
+  headerActionsNarrow: {
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    width: '100%',
+    flexShrink: 1,
+    gap: spacing.sm,
+  },
+  /** 手机档按钮：收紧内边距，尽量让 4 个按钮排成 2×2 而不是 4 行 */
+  headerBtnNarrow: { paddingHorizontal: spacing.sm, paddingVertical: 6 },
   keyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1023,11 +1067,37 @@ const styles = StyleSheet.create({
   dashRow: { flexDirection: 'row', gap: spacing.lg, alignItems: 'stretch' },
   dashRowNarrow: { flexDirection: 'column' },
   dashSide: { flex: 1, gap: spacing.md, minWidth: 240 },
+  /**
+   * 手机档右侧指标列：纵向排列时**不能**再吃 `flex: 1`（basis 0）——
+   * 那会把整列高度压成 0，三块指标卡叠在同一位置互相穿插。
+   */
+  dashSideNarrow: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
+    width: '100%',
+    minWidth: 0,
+  },
+  /** 手机档 StatTile：按内容高度排布（桌面端仍等高拉伸）*/
+  statTileNarrow: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
 
   balanceCard: { flex: 1.45, gap: spacing.md },
-  balanceCardNarrow: { flex: 0 },
+  /**
+   * 手机档余额卡：同理，纵向排列时必须按内容撑开。
+   * 之前 `flex: 0` 等价于 basis 0% ⇒ 卡片高度塌成 0，内容溢出压住下方指标卡。
+   */
+  balanceCardNarrow: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
+    width: '100%',
+  },
   balanceHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  /** 手机档标题行允许换行（标题 + CONNECTED 徽标并排会溢出）*/
+  balanceHeadNarrow: { flexWrap: 'wrap', gap: spacing.sm, rowGap: spacing.xs },
   eyebrow: { color: colors.textSecondary, fontSize: 12, fontWeight: '700', letterSpacing: 1.2 },
+  /** 标题允许收缩换行 —— 否则长标题把徽标顶出卡片 */
+  eyebrowShrink: { flexShrink: 1 },
   balanceLive: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1067,14 +1137,25 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.divider,
   },
+  /**
+   * 手机档指标区：换行排布 —— 「当前密钥」独占一行（等宽密钥太长），
+   * 「今日消费 / 单日上限」各占半行。
+   */
+  balanceMetaNarrow: { flexWrap: 'wrap', rowGap: spacing.md, gap: spacing.sm },
   balanceMetaCell: { flex: 1, gap: 4 },
+  balanceMetaCellKey: { flexBasis: '100%', flexGrow: 0, flexShrink: 1, minWidth: 0 },
+  balanceMetaCellHalf: { flexBasis: '45%', flexGrow: 1, flexShrink: 1, minWidth: 0 },
   balanceMetaLabel: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
   // 渐变卡底部的三个核心指标 —— 放大加粗，在霓虹描边下清晰可读
   balanceMetaValue: { color: colors.textPrimary, fontSize: fontSize.title, fontWeight: '800' },
+  /** 手机档数值降一档字号，避免等宽密钥被截断 */
+  balanceMetaValueNarrow: { fontSize: fontSize.md },
 
   nodePanelCard: { flex: 1.2, gap: spacing.md },
   nodePanelStats: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
-  nodePanelStat: { gap: 4 },
+  /** 手机档：两个统计数字并排太挤，允许换行 */
+  nodePanelStatsNarrow: { flexWrap: 'wrap', gap: spacing.md, rowGap: spacing.sm },
+  nodePanelStat: { gap: 4, flexShrink: 1 },
   nodePanelValue: { color: colors.accent, fontSize: fontSize.xxl, fontWeight: '800' },
   nodePanelLabel: { color: colors.textSecondary, fontSize: fontSize.sm },
   nodePanelDivider: { width: 1, height: 38, backgroundColor: colors.divider },
@@ -1131,12 +1212,16 @@ const styles = StyleSheet.create({
     padding: 4,
     gap: 4,
   },
+  /** 手机档：4 个分段标签一行放不下 → 2×2 换行 */
+  segmentWrapNarrow: { flexWrap: 'wrap' },
   segment: {
     flex: 1,
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
     alignItems: 'center',
   },
+  /** 手机档分段按钮：按 45% 基准换行排布 */
+  segmentNarrow: { flexBasis: '45%', flexGrow: 1, flexShrink: 1 },
   segmentActive: { backgroundColor: colors.purpleSoft, borderWidth: 1, borderColor: colors.purple },
   segmentText: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
   segmentTextActive: { color: colors.purple },
@@ -1157,6 +1242,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.xl,
   },
+  /** 手机档弹窗：收紧内边距，给内部表单留出宽度 */
+  modalCardNarrow: { padding: spacing.md, maxWidth: '100%' },
   modalTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '800', marginBottom: 8 },
   modalHint: { color: colors.textSecondary, fontSize: fontSize.sm, lineHeight: 20, marginBottom: 14 },
   modalInput: {
@@ -1170,6 +1257,8 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
   },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm, marginTop: spacing.lg },
+  /** 手机档弹窗按钮行：允许换行，避免 3 个按钮挤出弹窗 */
+  modalActionsNarrow: { flexWrap: 'wrap', justifyContent: 'flex-start' },
   modalBtn: { paddingHorizontal: spacing.lg, paddingVertical: 9, borderRadius: radius.md },
   modalBtnGhost: { backgroundColor: colors.bgElevated, borderWidth: 1, borderColor: colors.border },
   modalBtnGhostText: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '600' },

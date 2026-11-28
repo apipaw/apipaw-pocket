@@ -26,6 +26,14 @@ const CHART_PADDING_LEFT = 40;
 const CHART_PADDING_RIGHT = 10;
 const CHART_PADDING_TOP = 12;
 const CHART_PADDING_BOTTOM = 24;
+/**
+ * chartBox 的左右边框总宽（borderWidth: 1 × 2）。
+ *
+ * onLayout 量到的是 **border-box** 宽度，SVG 画布必须等于 **content-box** 宽度，
+ * 否则画布宽出 2px（窄屏表现为横向溢出）。
+ * ⚠️ 只收窄画布、不改绘图坐标 ⇒ 桌面端渲染像素与修复前完全一致。
+ */
+const CHART_BORDER = 2;
 
 /**
  * 版税走势折线图 (24 小时)
@@ -63,8 +71,9 @@ const RoyaltyTrendChart: React.FC<{ data: RoyaltyResponse | null; width: number 
 
   const gridValues = [0, 0.5, 1].map((ratio) => maxValue * ratio);
 
+  // 画布取内容盒宽度（border-box 减去左右边框），绘图坐标仍按 border-box 算
   return (
-    <Svg width={width} height={CHART_HEIGHT}>
+    <Svg width={Math.max(0, width - CHART_BORDER)} height={CHART_HEIGHT}>
       {gridValues.map((value, i) => {
         const y = yAt(value);
         return (
@@ -298,7 +307,7 @@ const RoyaltyCard: React.FC = () => {
             <View style={styles.balanceLeft}>
               <Text style={styles.balanceLabel}>可提余额</Text>
               <Text style={styles.balanceValue}>
-                ${data?.available_usd.toFixed(4) ?? '0.0000'}
+                ${(data?.available_usd ?? 0).toFixed(4)}
               </Text>
               <Text style={styles.balanceSub}>
                 {(data?.available_paw ?? 0).toFixed(2)} PAW · 已提 $
@@ -476,7 +485,7 @@ const RoyaltyCard: React.FC = () => {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>提现创作者版税</Text>
             <Text style={styles.modalSub}>
-              可提余额 ${data?.available_usd.toFixed(4) ?? '0.0000'} (
+              可提余额 ${(data?.available_usd ?? 0).toFixed(4)} (
               {(data?.available_paw ?? 0).toFixed(2)} PAW)
             </Text>
 

@@ -24,6 +24,17 @@ const CHART_PADDING_LEFT = 38;
 const CHART_PADDING_RIGHT = 10;
 const CHART_PADDING_TOP = 12;
 const CHART_PADDING_BOTTOM = 24;
+/**
+ * chartBox 的左右边框总宽（borderWidth: 1 × 2）。
+ *
+ * onLayout 量到的是 **border-box** 宽度，而 SVG 的画布必须等于 **content-box** 宽度，
+ * 否则画布会宽出 2px 被 overflow:hidden 裁掉（窄屏下体现为横向溢出）。
+ *
+ * ⚠️ 关键：**只收窄画布，不改绘图坐标**。
+ * 绘图仍按 border-box 宽度算 innerW，最右侧留白 CHART_PADDING_RIGHT(10px) > 2px，
+ * 所以画布收窄 2px 不会裁到任何图形 —— 桌面端渲染像素与修复前**完全一致**。
+ */
+const CHART_BORDER = 2;
 
 const MIN_LIMIT_USD = 10;
 const MAX_LIMIT_USD = 500;
@@ -77,8 +88,9 @@ const TokenLineChart: React.FC<TokenLineChartProps> = ({ data, width }) => {
 
   const gridValues = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(maxValue * ratio));
 
+  // 画布取内容盒宽度（border-box 减去左右边框），绘图坐标仍按 border-box 算
   return (
-    <Svg width={width} height={CHART_HEIGHT}>
+    <Svg width={Math.max(0, width - CHART_BORDER)} height={CHART_HEIGHT}>
       {gridValues.map((value) => {
         const y = yAt(value);
         return (

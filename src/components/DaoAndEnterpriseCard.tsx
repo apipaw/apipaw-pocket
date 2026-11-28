@@ -548,6 +548,9 @@ const styles = StyleSheet.create({
   mono: { color: colors.accent, fontSize: fontSize.xs, fontFamily: monoFont },
   hashTip: { color: colors.textMuted, fontSize: fontSize.xs, fontFamily: monoFont },
   input: {
+    /* RNW 的 <input> 默认 min-width:auto（= 20 字符固有宽度），
+       并排两个输入框时会撑破卡片 —— 必须显式清零才能正常收缩 */
+    minWidth: 0,
     backgroundColor: colors.bgElevated,
     borderRadius: radius.sm,
     borderWidth: 1,
