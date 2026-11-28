@@ -21,12 +21,14 @@ import {
   chatOnce,
   describeCloudError,
   fetchModels,
+  fetchRecommendedModels,
   streamChat,
   submitFeedback,
 } from '../api/cloudClient';
 import { colors, fontSize, radius, spacing } from '../theme';
 import { StatTile } from './ui';
 import Slider from './Slider';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 // ----------------- 类型 -----------------
 
@@ -137,6 +139,14 @@ const SCENARIO_LABEL: Record<'A' | 'B', string> = {
   A: '场景 A · 开源基础模型',
   B: '场景 B · 社区创作者模型',
 };
+
+/** 阶段十二 P3 · ``apipaw-auto`` 智能路由元模型（**虚拟条目**，不进 models 表）。
+ *  它按「在线节点的可服务模型」择优派单 ⇒ 只要有节点在线它就能跑。 */
+export const AUTO_MODEL_ID = 'apipaw-auto';
+
+/** 虚拟条目（智能路由 / MoA）—— 永远归入「在线可用」分组。 */
+const isVirtualModel = (model?: ModelInfo | null): boolean =>
+  !!model && (!!model.is_virtual || isMoaModel(model));
 
 const copyToClipboard = async (text: string): Promise<boolean> => {
   try {
@@ -295,6 +305,7 @@ const ReasoningCard: React.FC<ReasoningCardProps> = ({
     : elapsedMs ?? 0;
   const seconds = (elapsedValue / 1000).toFixed(1);
 
+
   return (
     <View style={styles.reasonCard}>
       <TouchableOpacity style={styles.reasonHeader} onPress={toggle} activeOpacity={0.75}>
@@ -368,89 +379,120 @@ const CapacityErrorView: React.FC<{ error: CapacityError }> = ({ error }) => {
 
 // ----------------- 性能统计条 -----------------
 
-const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => (
-  <View style={styles.statsBar}>
-    {/* 阶段五 P2 · D9：三块 StatTile —— 首字延迟 / 吐字速度 / 总 token。
+const StatsBar: React.FC<{ stats: RunStats }> = ({ stats }) => {
+  // 窄屏（< 768px）专用形态：① KPI 三块改 2+1 换行 + 紧凑字号（零省略号）
+  // ②「账单小票」折叠为一行紧凑摘要（否则它会把 AI 正文顶出视口）。
+  const isMobile = useIsMobile();
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const receiptCollapsed = isMobile && !receiptOpen;
+
+  return (
+    <View style={styles.statsBar}>
+      {/* 阶段五 P2 · D9：三块 StatTile —— 首字延迟 / 吐字速度 / 总 token。
         阶段五 P4 起：TTFT 与 tok/s **优先用后端实测值**（跨设备可比、可回溯），
         后端没给（模拟回答 / 老网关）时才回退**前端本地计时**。 */}
-    <View style={styles.statTilesRow}>
-      <View style={styles.statTileWrap} testID="playground-stat-ttft">
-        <StatTile
-          label="首字延迟 TTFT"
-          value={formatMs(stats.ttftMs)}
-          tone="cyan"
-          hint={stats.perfSource === 'node' ? '后端实测' : '本地计时'}
-        />
+      <View style={[styles.statTilesRow, isMobile && styles.statTilesRowMobile]}>
+        <View style={[styles.statTileWrap, isMobile && styles.statTileWrapMobile]} testID="playground-stat-ttft">
+          <StatTile
+            label="首字延迟 TTFT"
+            value={formatMs(stats.ttftMs)}
+            tone="cyan"
+            hint={stats.perfSource === 'node' ? '后端实测' : '本地计时'}
+            compact={isMobile}
+          />
+        </View>
+        <View style={[styles.statTileWrap, isMobile && styles.statTileWrapMobile]} testID="playground-stat-tps">
+          <StatTile
+            label="吐字速度"
+            value={stats.tokensPerSec.toFixed(1)}
+            unit="tok/s"
+            tone="emerald"
+            hint={stats.perfSource === 'node' ? '后端实测' : '本地计时'}
+            compact={isMobile}
+          />
+        </View>
+        <View style={[styles.statTileWrap, isMobile && styles.statTileWrapMobile]} testID="playground-stat-tokens">
+          <StatTile
+            label="总 Tokens"
+            value={String(stats.totalTokens)}
+            tone="violet"
+            hint={`输入 ${stats.promptTokens} / 输出 ${stats.completionTokens}`}
+            compact={isMobile}
+          />
+        </View>
       </View>
-      <View style={styles.statTileWrap} testID="playground-stat-tps">
-        <StatTile
-          label="吐字速度"
-          value={stats.tokensPerSec.toFixed(1)}
-          unit="tok/s"
-          tone="emerald"
-          hint={stats.perfSource === 'node' ? '后端实测' : '本地计时'}
-        />
-      </View>
-      <View style={styles.statTileWrap} testID="playground-stat-tokens">
-        <StatTile
-          label="总 Tokens"
-          value={String(stats.totalTokens)}
-          tone="violet"
-          hint={`输入 ${stats.promptTokens} / 输出 ${stats.completionTokens}`}
-        />
-      </View>
-    </View>
 
-    {/* 阶段五 P2 · D9：「账单小票」—— 单次请求的四项费用，结算后一目了然。
+      {/* 阶段五 P2 · D9：「账单小票」—— 单次请求的四项费用，结算后一目了然。
         口径优先用 v2 明细（切正后的权威口径），老网关不下发时回落旧字段。
         流式过程中费用尚未结算（partial）→ 小票等结算完成再出现。 */}
-    {stats.partial ? (
-      <Text style={styles.breakdownTitle} testID="playground-cost-pending">
-        账单小票 · 结算中…
-      </Text>
-    ) : (
-      <View style={styles.breakdownRow} testID="playground-cost-breakdown">
-        <Text style={styles.breakdownTitle}>账单小票</Text>
+      {stats.partial ? (
+        <Text style={styles.breakdownTitle} testID="playground-cost-pending">
+          账单小票 · 结算中…
+        </Text>
+      ) : (
+        <>
+          {/* 窄屏：默认只显示一行紧凑摘要（明细全部保留在 DOM 里，点开即看）。 */}
+          {isMobile ? (
+            <TouchableOpacity
+              style={styles.receiptSummaryRow}
+              onPress={() => setReceiptOpen((v) => !v)}
+              activeOpacity={0.75}
+              testID="playground-cost-summary-mobile"
+            >
+              <Text style={styles.receiptSummaryText} numberOfLines={1}>
+                {receiptOpen
+                  ? '▴ 收起账单明细'
+                  : `账单明细：实付 $${stats.costUsd.toFixed(6)} · 展开 ▾`}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          <View
+            style={[styles.breakdownRow, receiptCollapsed && styles.collapsedOnMobile]}
+            testID="playground-cost-breakdown"
+          >
+            <Text style={styles.breakdownTitle}>账单小票</Text>
 
-        {/* 阶段六 D10 · 档位拆开展示：节点硬件档位 ≠ 模型需求档位。
+            {/* 阶段六 D10 · 档位拆开展示：节点硬件档位 ≠ 模型需求档位。
             两个都可能是空串（节点未上报显存 / 模型无显存门槛）⇒ 明确写「未上报」。 */}
-        <View style={styles.tierRow} testID="playground-receipt-tiers">
-          <View style={styles.tierChip} testID="playground-tier-node">
-            <Text style={styles.tierChipLabel}>节点档位</Text>
-            <Text style={styles.tierChipValue}>{tierTextOf(stats.nodeTier)}</Text>
-          </View>
-          <View style={styles.tierChip} testID="playground-tier-model">
-            <Text style={styles.tierChipLabel}>模型需求档位</Text>
-            <Text style={styles.tierChipValue}>{tierTextOf(stats.modelCapabilityClass)}</Text>
-          </View>
-        </View>
+            <View style={styles.tierRow} testID="playground-receipt-tiers">
+              <View style={styles.tierChip} testID="playground-tier-node">
+                <Text style={styles.tierChipLabel}>节点档位</Text>
+                <Text style={styles.tierChipValue}>{tierTextOf(stats.nodeTier)}</Text>
+              </View>
+              <View style={styles.tierChip} testID="playground-tier-model">
+                <Text style={styles.tierChipLabel}>模型需求档位</Text>
+                <Text style={styles.tierChipValue}>{tierTextOf(stats.modelCapabilityClass)}</Text>
+              </View>
+            </View>
 
-        {/* 阶段六 D5/D6 · 免单（模拟回答 / 断流）⇒ 本次 $0，必须说清楚「为什么是 0」 */}
-        {stats.waived ? (
-          <View style={styles.waivedRow} testID="playground-receipt-waived">
-            <Text style={styles.waivedText}>
-              ⚠️ 本次免单 · $0（{stats.waiveReason || stats.streamError || '未产生可计费服务'}）
+            {/* 阶段六 D5/D6 · 免单（模拟回答 / 断流）⇒ 本次 $0，必须说清楚「为什么是 0」 */}
+            {stats.waived ? (
+              <View style={styles.waivedRow} testID="playground-receipt-waived">
+                <Text style={styles.waivedText}>
+                  ⚠️ 本次免单 · $0（{stats.waiveReason || stats.streamError || '未产生可计费服务'}）
+                </Text>
+              </View>
+            ) : null}
+
+            <Text style={styles.breakdownItem} testID="playground-cost-compute">
+              算力费 ${stats.baseComputeUsd.toFixed(6)}
+            </Text>
+            <Text style={styles.breakdownItem} testID="playground-cost-royalty">
+              创作者版税 ${stats.creatorRoyaltyUsd.toFixed(6)}
+            </Text>
+            <Text style={styles.breakdownItem} testID="playground-cost-platform">
+              平台管理费 ${stats.platformTotalUsd.toFixed(6)}
+            </Text>
+            <Text style={[styles.breakdownItem, styles.breakdownTotal]} testID="playground-receipt-total">
+              买家实付 ${stats.costUsd.toFixed(6)} · {stats.cgas.toFixed(1)} CGas
+              {stats.waived ? ' · 已免单' : ''}
             </Text>
           </View>
-        ) : null}
-
-        <Text style={styles.breakdownItem} testID="playground-cost-compute">
-          算力费 ${stats.baseComputeUsd.toFixed(6)}
-        </Text>
-        <Text style={styles.breakdownItem} testID="playground-cost-royalty">
-          创作者版税 ${stats.creatorRoyaltyUsd.toFixed(6)}
-        </Text>
-        <Text style={styles.breakdownItem} testID="playground-cost-platform">
-          平台管理费 ${stats.platformTotalUsd.toFixed(6)}
-        </Text>
-        <Text style={[styles.breakdownItem, styles.breakdownTotal]} testID="playground-receipt-total">
-          买家实付 ${stats.costUsd.toFixed(6)} · {stats.cgas.toFixed(1)} CGas
-          {stats.waived ? ' · 已免单' : ''}
-        </Text>
-      </View>
-    )}
-  </View>
-);
+        </>
+      )}
+    </View>
+  );
+};
 
 // ----------------- 阶段二十四 P1 · 流式性能微组件 -----------------
 
@@ -530,6 +572,27 @@ const PlaygroundCard: React.FC = () => {
   const [exporterOpen, setExporterOpen] = useState(false);
   const [exporterTab, setExporterTab] = useState<ExporterTab>('curl');
   const [copied, setCopied] = useState(false);
+
+  // ----------------- 窄屏（< 768px）体验 -----------------
+  const isMobile = useIsMobile();
+  /** 窄屏：把「本次预计花费 / 采样参数 / 黄金记忆增强」收成一行摘要 */
+  const [mobileConfigOpen, setMobileConfigOpen] = useState(false);
+  /** 窄屏：模型弹窗里「离线模型」折叠分组默认收起；宽屏默认展开（保持桌面观感不变） */
+  const [offlineGroupOpen, setOfflineGroupOpen] = useState(false);
+  /** 用户是否**手动**选过模型 —— 手动选择后不再被「自动挑在线模型」覆盖 */
+  const userPickedModelRef = useRef(false);
+  /** 自动挑选只做一次（避免与用户操作打架） */
+  const autoPickedRef = useRef(false);
+
+  /**
+   * 每个模型的**在线可服务节点数**（来自公开只读的
+   * ``/api/v1/network/recommended-models``）。
+   *
+   * ⚠️ ``/v1/models`` 目录**不下发**这个字段 ⇒ 没有它前端无法判断
+   * 「这个模型现在有没有节点在跑」。取不到时保持空表 ⇒ 一切按「未知」处理
+   * （不折叠、不改默认值），**绝不因为数据缺失而误判模型离线**。
+   */
+  const [onlineCounts, setOnlineCounts] = useState<Record<string, number>>({});
 
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
@@ -618,6 +681,80 @@ const PlaygroundCard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelCatalogVersion]);
 
+  // 拉取「推荐模型列表」—— 拿到每个模型的**在线可服务节点数**。
+  //
+  // 为什么必须单独拉：``/v1/models`` 只下发目录（id / 单价 / 场景），
+  // 不含在线节点数；没有它前端既选不出「现在真能跑」的默认模型，
+  // 也无法把离线模型折叠分组。
+  //
+  // ⚠️ 失败**不阻塞**任何功能：表为空 ⇒ 一律按「未知」处理
+  //    （不折叠、不改默认值），保持旧行为。
+  useEffect(() => {
+    let active = true;
+    fetchRecommendedModels()
+      .then((res) => {
+        if (!active) return;
+        const rows = Array.isArray(res?.models) ? res.models : [];
+        if (rows.length === 0) return;
+        const map: Record<string, number> = {};
+        for (const row of rows) {
+          const id = String(row?.model_id || '');
+          if (!id) continue;
+          map[id] = Number(row?.online_nodes || 0);
+        }
+        setOnlineCounts(map);
+      })
+      .catch(() => {
+        /* 拿不到就当「全部未知」—— 不猜、不误判 */
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelCatalogVersion]);
+
+  // 宽屏 ⇒ 离线分组默认展开；窄屏 ⇒ 默认收起（桌面观感与既有 E2E 行为不变）
+  useEffect(() => {
+    setOfflineGroupOpen(!isMobile);
+  }, [isMobile]);
+
+  /**
+   * 默认模型**自动挑一个在线可跑的**（纯展示层决策，不碰后端、不碰 DB）。
+   *
+   * 背景：store 的默认值是 ``deepseek-r1``，而它当前**没有在线节点** ⇒
+   * 用户一进 Playground 就撞「算力池当前没有可用节点」。
+   *
+   * 规则（依次）：
+   *   1. 本次会话内用户**手动**选过 ⇒ 不动（尊重显式选择）；
+   *      （``selectedModelId`` 本就不落盘，刷新后回到 store 默认值，
+   *        所以「刷新后重新挑一个在线模型」与既有行为一致，不算覆盖用户设置）
+   *   2. 当前模型是虚拟路由（Smart Router / MoA）⇒ 不动；
+   *   3. 当前模型在线（online_nodes > 0）或**状态未知** ⇒ 不动；
+   *   4. 否则切到「第一个在线模型」；没有在线模型则退回 Smart Router。
+   */
+  useEffect(() => {
+    if (autoPickedRef.current || userPickedModelRef.current) return;
+    if (models.length === 0) return;
+    // 还没拿到在线数据 ⇒ 先不下结论（避免误判）
+    if (Object.keys(onlineCounts).length === 0) return;
+    autoPickedRef.current = true;
+
+    const current = models.find((m) => m.id === selectedModelId);
+    if (!current) return;
+    if (isVirtualModel(current)) return;
+    const count = onlineCounts[current.id];
+    // 未知（目录里有、在线表里没有）⇒ 保持原样
+    if (count === undefined || count > 0) return;
+
+    const onlineReal = models.find((m) => !isVirtualModel(m) && (onlineCounts[m.id] ?? 0) > 0);
+    const fallbackVirtual =
+      models.find((m) => m.id === AUTO_MODEL_ID) ?? models.find((m) => isVirtualModel(m));
+    const next = onlineReal ?? fallbackVirtual;
+    if (next && next.id !== current.id) {
+      setSelectedModelId(next.id);
+    }
+  }, [models, onlineCounts, selectedModelId, setSelectedModelId]);
+
   // 阶段二十四 P1：原先这里有一个**常驻**的 120ms 思考链计时器
   // （``setInterval(() => setTick(...), 120)``）—— 它在**不流式时也在跑**
   // （只要 streaming 曾为 true 就重建，且每次 tick 都让整卡重渲染）。
@@ -686,6 +823,75 @@ const PlaygroundCard: React.FC = () => {
       cgas: totalUsd * (model.pricing.usd_to_cgas || 100),
     };
   }, [activeModel, input, systemPrompt, maxTokens, messages]);
+
+  // ----------------- 模型分组（在线 / 离线）-----------------
+  //
+  // 口径：**只有明确查到 online_nodes === 0 的真实模型**才归入「离线」分组；
+  // 查不到（不在推荐列表里）⇒ 视为「未知」，留在主列表 —— 绝不误伤。
+  // 虚拟条目（Smart Router / MoA）恒在主列表（它们按在线节点动态派单）。
+  const onlineModels = useMemo(
+    () => models.filter((m) => isVirtualModel(m) || onlineCounts[m.id] !== 0),
+    [models, onlineCounts],
+  );
+  const offlineModels = useMemo(
+    () => models.filter((m) => !isVirtualModel(m) && onlineCounts[m.id] === 0),
+    [models, onlineCounts],
+  );
+
+  /** 模型条目渲染（在线组与离线组共用） */
+  const renderModelItem = (model: ModelInfo) => {
+    const onlineCount = onlineCounts[model.id];
+    return (
+      <TouchableOpacity
+        key={model.id}
+        testID={`playground-model-item-${model.id}`}
+        style={[
+          styles.pickerItem,
+          model.id === selectedModelId && styles.pickerItemActive,
+        ]}
+        onPress={() => {
+          // 阶段五 P1：切换模型**保留会话与参数状态**（只换 model_id）
+          userPickedModelRef.current = true;
+          setSelectedModelId(model.id);
+          setPickerOpen(false);
+        }}
+      >
+        <View style={styles.pickerItemLeft}>
+          <Text style={styles.pickerItemTitle}>{model.display_name}</Text>
+          <Text style={styles.pickerItemDesc}>
+            {SCENARIO_LABEL[scenarioOf(model)]}
+            {scenarioOf(model) === 'B'
+              ? ` · 版税 ${(royaltyRateOf(model) * 100).toFixed(0)}%`
+              : ''}
+            {' · '}
+            {model.description}
+          </Text>
+          <Text style={styles.pickerItemStatus}>
+            {isVirtualModel(model)
+              ? '路由条目 · 按当前在线节点动态派单'
+              : onlineCount === undefined
+                ? '在线节点数未知'
+                : onlineCount > 0
+                  ? `${onlineCount} 个在线节点`
+                  : '暂无在线节点（选中后将排队等待节点上线）'}
+          </Text>
+        </View>
+        <View style={styles.pickerItemRight}>
+          <View
+            style={[
+              styles.tierBadge,
+              model.tier === 'CREATOR' ? styles.tierBadgeCreator : styles.tierBadgeBase,
+            ]}
+          >
+            <Text style={styles.tierBadgeText}>
+              {isMoaModel(model) ? '协同' : model.tier === 'CREATOR' ? '创作者' : '基础'}
+            </Text>
+          </View>
+          {model.id === selectedModelId ? <Text style={styles.pickerCheck}>✓</Text> : null}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   // ----------------- 代码导出 -----------------
 
@@ -1190,102 +1396,13 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
   // 即"一个数字在跳 ⇒ 整个消息数组被重建 ⇒ 整卡重渲染"。
   // 现在：流式期间父组件**完全不动**，只有几十行的微组件自己跳。
 
-  return (
-    <View style={styles.card} testID="playground-card" id="apx-glass-playground">
-      <View style={styles.cardHeader}>
-        <View style={styles.cardTitleWrap}>
-          <View style={styles.titleDot} />
-          <Text style={styles.cardTitle}>掌上 Playground 试炼场</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.exportBtn}
-          id="apx-glow-export"
-          onPress={() => setExporterOpen(true)}
-          activeOpacity={0.75}
-          testID="playground-export-open"
-        >
-          <Text style={styles.exportBtnText}>导出代码</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 模型选择器 */}
-      <TouchableOpacity
-        style={styles.modelSelector}
-        onPress={() => setPickerOpen(true)}
-        activeOpacity={0.75}
-        disabled={modelsLoading}
-      >
-        <View style={styles.modelSelectorLeft}>
-          <Text style={styles.modelSelectorLabel}>推理模型</Text>
-          <Text style={styles.modelSelectorValue} id="apx-model-selector-value">
-            {modelsLoading
-              ? '加载中...'
-              : activeModel
-                ? activeModel.display_name
-                : modelsError
-                  ? '模型目录不可用'
-                  : '未选择模型'}
-          </Text>
-        </View>
-        <View style={styles.modelSelectorRight}>
-          {activeModel && (
-            <View
-              style={[
-                styles.scenarioBadge,
-                scenarioOf(activeModel) === 'B' ? styles.scenarioBadgeB : styles.scenarioBadgeA,
-              ]}
-              testID="playground-scenario-badge"
-            >
-              <Text style={styles.scenarioBadgeText}>
-                {scenarioOf(activeModel) === 'B'
-                  ? `场景B · 版税 ${(royaltyRateOf(activeModel) * 100).toFixed(0)}%`
-                  : isMoaModel(activeModel)
-                    ? '协同路由 · 多节点深度思考'
-                    : activeModel.is_virtual
-                      ? '智能路由 · 自动优选'
-                      : '场景A · 开源基础'}
-              </Text>
-            </View>
-          )}
-          {activeModel && (
-            <View style={[styles.tierBadge, activeModel.tier === 'CREATOR' ? styles.tierBadgeCreator : styles.tierBadgeBase]}>
-              <Text style={styles.tierBadgeText}>
-                {isMoaModel(activeModel)
-                  ? '多节点协同'
-                  : activeModel.is_virtual
-                    ? '智能优选路由'
-                    : activeModel.tier === 'CREATOR'
-                      ? '社区创作者'
-                      : '开源基础'}
-              </Text>
-            </View>
-          )}
-          <Text style={styles.modelSelectorChevron}>▾</Text>
-        </View>
-      </TouchableOpacity>
-
-      {modelsError && (
-        <Text style={styles.modelsError}>⚠️ {modelsError}</Text>
-      )}
-
-      {activeModel && (
-        <Text style={styles.modelMeta} id="apx-model-meta">
-          {SCENARIO_LABEL[scenarioOf(activeModel)]} · {activeModel.description} ·
-          {activeModel.is_virtual ? (
-            isMoaModel(activeModel)
-              ? '多节点协同出草稿、主节点聚合；按最终聚合节点命中的模型计费'
-              : '按实际路由到的模型计费'
-          ) : (
-            <>
-              {' '}
-              输入 ${activeModel.pricing.prompt_per_1k_usd}/1K ·
-              输出 ${activeModel.pricing.completion_per_1k_usd}/1K · 上下文{' '}
-              {activeModel.context_window}
-            </>
-          )}
-        </Text>
-      )}
-
+  /**
+   * 窄屏（< 768px）折叠块：**本次预计花费 / 采样参数 / 黄金记忆增强** 三块控件
+   * 在移动端原本平铺占掉半屏 ⇒ 对话区只剩 4 行可读。这里把它们收成一行摘要，
+   * 展开后是**原封不动的原控件**（功能与 testID 一个不少）。
+   */
+  const configBlock = (
+    <>
       {/* 阶段五 P1 · 本次预计花费（按当前输入 + 当前模型单价实时估算） */}
       {activeModel && costPreview && (
         <View style={styles.costPreviewRow} testID="playground-cost-preview">
@@ -1421,9 +1538,133 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
           </TouchableOpacity>
         </View>
       )}
+    </>
+  );
+
+  return (
+    <View style={styles.card} testID="playground-card" id="apx-glass-playground">
+      <View style={styles.cardHeader}>
+        <View style={styles.cardTitleWrap}>
+          <View style={styles.titleDot} />
+          <Text style={styles.cardTitle}>掌上 Playground 试炼场</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.exportBtn}
+          id="apx-glow-export"
+          onPress={() => setExporterOpen(true)}
+          activeOpacity={0.75}
+          testID="playground-export-open"
+        >
+          <Text style={styles.exportBtnText}>导出代码</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 模型选择器 */}
+      <TouchableOpacity
+        style={styles.modelSelector}
+        onPress={() => setPickerOpen(true)}
+        activeOpacity={0.75}
+        disabled={modelsLoading}
+      >
+        <View style={styles.modelSelectorLeft}>
+          <Text style={styles.modelSelectorLabel}>推理模型</Text>
+          <Text style={styles.modelSelectorValue} id="apx-model-selector-value">
+            {modelsLoading
+              ? '加载中...'
+              : activeModel
+                ? activeModel.display_name
+                : modelsError
+                  ? '模型目录不可用'
+                  : '未选择模型'}
+          </Text>
+        </View>
+        <View style={styles.modelSelectorRight}>
+          {activeModel && (
+            <View
+              style={[
+                styles.scenarioBadge,
+                scenarioOf(activeModel) === 'B' ? styles.scenarioBadgeB : styles.scenarioBadgeA,
+              ]}
+              testID="playground-scenario-badge"
+            >
+              <Text style={styles.scenarioBadgeText}>
+                {scenarioOf(activeModel) === 'B'
+                  ? `场景B · 版税 ${(royaltyRateOf(activeModel) * 100).toFixed(0)}%`
+                  : isMoaModel(activeModel)
+                    ? '协同路由 · 多节点深度思考'
+                    : activeModel.is_virtual
+                      ? '智能路由 · 自动优选'
+                      : '场景A · 开源基础'}
+              </Text>
+            </View>
+          )}
+          {activeModel && (
+            <View style={[styles.tierBadge, activeModel.tier === 'CREATOR' ? styles.tierBadgeCreator : styles.tierBadgeBase]}>
+              <Text style={styles.tierBadgeText}>
+                {isMoaModel(activeModel)
+                  ? '多节点协同'
+                  : activeModel.is_virtual
+                    ? '智能优选路由'
+                    : activeModel.tier === 'CREATOR'
+                      ? '社区创作者'
+                      : '开源基础'}
+              </Text>
+            </View>
+          )}
+          <Text style={styles.modelSelectorChevron}>▾</Text>
+        </View>
+      </TouchableOpacity>
+
+      {modelsError && (
+        <Text style={styles.modelsError}>⚠️ {modelsError}</Text>
+      )}
+
+      {activeModel && (
+        <Text style={styles.modelMeta} id="apx-model-meta">
+          {SCENARIO_LABEL[scenarioOf(activeModel)]} · {activeModel.description} ·
+          {activeModel.is_virtual ? (
+            isMoaModel(activeModel)
+              ? '多节点协同出草稿、主节点聚合；按最终聚合节点命中的模型计费'
+              : '按实际路由到的模型计费'
+          ) : (
+            <>
+              {' '}
+              输入 ${activeModel.pricing.prompt_per_1k_usd}/1K ·
+              输出 ${activeModel.pricing.completion_per_1k_usd}/1K · 上下文{' '}
+              {activeModel.context_window}
+            </>
+          )}
+        </Text>
+      )}
+
+      {/* 窄屏：三块次要配置收成一行摘要（默认收起），点开是**原封不动**的原控件。
+          宽屏：直接铺开（与旧版完全一致，桌面端零变化）。 */}
+      {isMobile ? (
+        <View style={styles.mobileConfigWrap}>
+          <TouchableOpacity
+            style={styles.mobileConfigBar}
+            onPress={() => setMobileConfigOpen((v) => !v)}
+            activeOpacity={0.75}
+            testID="playground-mobile-config-toggle"
+          >
+            <Text style={styles.mobileConfigBarText} numberOfLines={1}>
+              {mobileConfigOpen
+                ? '▴ 收起参数'
+                : `预估 ${costPreview ? `$${costPreview.totalUsd.toFixed(6)}` : '—'} · 黄金增强${
+                    goldenBoost ? '已开' : '已关'
+                  } · 展开参数 ▾`}
+            </Text>
+          </TouchableOpacity>
+          <View style={mobileConfigOpen ? styles.mobileConfigBodyOpen : styles.collapsedOnMobile}>
+            {configBlock}
+          </View>
+        </View>
+      ) : (
+        configBlock
+      )}
 
       {/* 对话区 —— 视觉上是一台真实终端（内阴影 + 顶部高光条）*/}
-      <View style={styles.conversation} id="apx-term">
+      <View style={[styles.conversation, isMobile && styles.conversationMobile]} id="apx-term">
         <View style={styles.termBar} id="apx-term-bar">
           <View style={styles.termDots}>
             <View style={[styles.termDot, { backgroundColor: colors.danger }]} />
@@ -1433,7 +1674,7 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
           <Text style={styles.termLabel}>apipaw://playground — streaming session</Text>
         </View>
         <ScrollView
-          style={styles.conversationScroll}
+          style={[styles.conversationScroll, isMobile && styles.conversationScrollMobile]}
           contentContainerStyle={styles.conversationContent}
           nestedScrollEnabled
         >
@@ -1594,7 +1835,7 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
       <View style={styles.inputRow}>
         <TextInput
           id="apx-playground-input"
-          style={styles.input}
+          style={[styles.input, isMobile && styles.inputMobile]}
           value={input}
           onChangeText={setInput}
           placeholder="输入 Prompt，例如：解释一下 DePIN 的结算规则"
@@ -1620,57 +1861,51 @@ export OPENAI_API_KEY=paw-sk-xxxxxx`;
         )}
       </View>
 
-      {/* 模型下拉 Modal */}
+      {/* 模型下拉 Modal
+          ⚠️ 此前弹层是**半透明**的（卡片底色 colors.card = rgba(255,255,255,0.035)），
+             底层的「本次预计花费 / 掌上 Playground 试炼场」文字会透上来与模型条目混在一起。
+             现在：全屏深色遮罩 + **完全不透明**的卡片体 + 卡内独立滚动。 */}
       <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
         <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setPickerOpen(false)}>
           <TouchableOpacity style={styles.pickerSheet} activeOpacity={1}>
             <Text style={styles.modalTitle}>选择推理模型</Text>
-            {models.map((model) => (
-              <TouchableOpacity
-                key={model.id}
-                testID={`playground-model-item-${model.id}`}
-                style={[
-                  styles.pickerItem,
-                  model.id === selectedModelId && styles.pickerItemActive,
-                ]}
-                onPress={() => {
-                  // 阶段五 P1：切换模型**保留会话与参数状态**（只换 model_id）
-                  setSelectedModelId(model.id);
-                  setPickerOpen(false);
-                }}
-              >
-                <View style={styles.pickerItemLeft}>
-                  <Text style={styles.pickerItemTitle}>{model.display_name}</Text>
-                  <Text style={styles.pickerItemDesc}>
-                    {SCENARIO_LABEL[scenarioOf(model)]}
-                    {scenarioOf(model) === 'B'
-                      ? ` · 版税 ${(royaltyRateOf(model) * 100).toFixed(0)}%`
-                      : ''}
-                    {' · '}
-                    {model.description}
-                  </Text>
-                </View>
-                <View style={styles.pickerItemRight}>
-                  <View
-                    style={[
-                      styles.tierBadge,
-                      model.tier === 'CREATOR' ? styles.tierBadgeCreator : styles.tierBadgeBase,
-                    ]}
+            <Text style={styles.pickerSubtitle}>
+              {onlineModels.length > 0
+                ? `在线可推理 ${onlineModels.length} 个`
+                : '在线可推理模型数未知'}
+              {offlineModels.length > 0 ? ` · 离线 ${offlineModels.length} 个` : ''}
+            </Text>
+            <ScrollView
+              style={styles.pickerScroll}
+              contentContainerStyle={styles.pickerScrollContent}
+              nestedScrollEnabled
+            >
+              {onlineModels.map(renderModelItem)}
+              {offlineModels.length > 0 && (
+                <>
+                  <TouchableOpacity
+                    style={styles.pickerGroupToggle}
+                    onPress={() => setOfflineGroupOpen((v) => !v)}
+                    activeOpacity={0.75}
+                    testID="playground-offline-models-toggle"
                   >
-                    <Text style={styles.tierBadgeText}>
-                      {isMoaModel(model) ? '协同' : model.tier === 'CREATOR' ? '创作者' : '基础'}
+                    <Text style={styles.pickerGroupToggleText}>
+                      {offlineGroupOpen ? '▾' : '▸'} 暂未上线 / 离线模型 ({offlineModels.length})
                     </Text>
-                  </View>
-                  {model.id === selectedModelId ? <Text style={styles.pickerCheck}>✓</Text> : null}
+                    <Text style={styles.pickerGroupToggleHint}>
+                      {offlineGroupOpen ? '点击收起' : '点击展开选择'}
+                    </Text>
+                  </TouchableOpacity>
+                  {offlineGroupOpen ? offlineModels.map(renderModelItem) : null}
+                </>
+              )}
+              {models.length === 0 && (
+                <View style={styles.pickerEmpty}>
+                  <ActivityIndicator color={colors.accent} />
+                  <Text style={styles.pickerItemDesc}>模型目录加载中或网关未启动</Text>
                 </View>
-              </TouchableOpacity>
-            ))}
-            {models.length === 0 && (
-              <View style={styles.pickerEmpty}>
-                <ActivityIndicator color={colors.accent} />
-                <Text style={styles.pickerItemDesc}>模型目录加载中或网关未启动</Text>
-              </View>
-            )}
+              )}
+            </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -1881,6 +2116,19 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   conversationScroll: { flex: 1 },
+  // 窄屏：对话区显著加大（min 340 / max 55vh）—— 此前固定 340px 高的容器里
+  // 只有 4 行可读，AI 正文被顶到屏幕外。
+  conversationMobile: {
+    height: 'auto',
+    minHeight: 380,
+    maxHeight: '58vh',
+  },
+  conversationScrollMobile: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minHeight: 340,
+    maxHeight: '55vh',
+  },
   conversationContent: { padding: spacing.md, gap: spacing.md },
   emptyHint: { paddingVertical: spacing.xl, alignItems: 'center', gap: 6 },
   emptyHintTitle: {
@@ -2012,6 +2260,33 @@ const styles = StyleSheet.create({
   // 阶段五 P2 · D9：TTFT / 吐字速度 / 总 token 三块 StatTile
   statTilesRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   statTileWrap: { flex: 1 },
+  // 窄屏：KPI 三块改 2+1 换行（每块 ≈ 半行宽）⇒ 数值与提示都放得下，零省略号
+  statTilesRowMobile: { flexWrap: 'wrap' },
+  statTileWrapMobile: { flexBasis: '47%', flexGrow: 1, minWidth: 140 },
+  // 窄屏：账单小票折叠为一行紧凑摘要
+  receiptSummaryRow: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  receiptSummaryText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '700' },
+  // 窄屏折叠时「隐藏但不卸载」—— 功能与 testID 一个不少
+  collapsedOnMobile: { display: 'none' },
+  mobileConfigWrap: { marginTop: spacing.sm },
+  mobileConfigBar: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  mobileConfigBarText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '700' },
+  mobileConfigBodyOpen: { marginTop: spacing.sm },
   breakdownTotal: {
     color: colors.textPrimary,
     fontWeight: '700',
@@ -2198,6 +2473,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 2,
     fontSize: fontSize.lg,
   },
+  // 窄屏：输入框支持 2~4 行自然输入（发送按钮底部对齐）
+  inputMobile: {
+    minHeight: 76,
+    maxHeight: 150,
+    fontSize: fontSize.md,
+    paddingVertical: spacing.sm,
+  },
   sendBtn: {
     height: 44,
     paddingHorizontal: spacing.xl,
@@ -2212,7 +2494,8 @@ const styles = StyleSheet.create({
 
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(2, 6, 23, 0.72)',
+    // 深色遮罩：把底层页面内容彻底压暗，避免与弹层文字混读
+    backgroundColor: 'rgba(5, 9, 18, 0.85)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing.lg,
@@ -2220,13 +2503,37 @@ const styles = StyleSheet.create({
   pickerSheet: {
     width: '100%',
     maxWidth: 480,
-    maxHeight: '78%',
-    backgroundColor: colors.card,
+    maxHeight: '82vh',
+    // ⚠️ 必须是**完全不透明**的深色底 —— 此前用 colors.card（rgba(255,255,255,0.035)）
+    //    ⇒ 底层的「本次预计花费 / 掌上 Playground 试炼场」会透上来与模型条目重叠。
+    backgroundColor: '#0B1120',
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.borderStrong,
     padding: spacing.lg,
   },
+  pickerSubtitle: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    marginTop: spacing.xs,
+  },
+  // 卡内独立滚动区（弹层不撑破视口，底层页面也不跟着滚）
+  pickerScroll: { marginTop: spacing.sm },
+  pickerScrollContent: { paddingBottom: spacing.sm },
+  pickerGroupToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  pickerGroupToggleText: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
+  pickerGroupToggleHint: { color: colors.textMuted, fontSize: fontSize.xs },
   modalTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '700' },
   modalClose: { color: colors.textSecondary, fontSize: fontSize.lg, paddingHorizontal: spacing.sm },
   pickerItem: {
@@ -2244,6 +2551,7 @@ const styles = StyleSheet.create({
   pickerItemLeft: { flex: 1 },
   pickerItemTitle: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '700' },
   pickerItemDesc: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: 3 },
+  pickerItemStatus: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
   pickerItemRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   pickerCheck: { color: colors.accent, fontSize: fontSize.lg, fontWeight: '700' },
   pickerEmpty: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },

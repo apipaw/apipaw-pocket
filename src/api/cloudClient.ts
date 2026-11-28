@@ -892,6 +892,39 @@ export const fetchNetworkHealth = async (): Promise<NetworkHealth> => {
   return res.data;
 };
 
+/**
+ * 推荐模型列表（**公开可读**）—— 每个模型当前**在线且可服务**的节点数。
+ *
+ * 为什么前端需要它：`/v1/models` 只下发目录（模型 id / 单价 / 场景），
+ * **不下发在线节点数** ⇒ 前端无法判断「这个模型现在有没有节点在跑」。
+ * Playground 的默认值若落在离线模型（如 DeepSeek-R1）上，用户一进来就撞
+ * 「算力池当前没有可用节点」。本端点是**只读公开聚合**，零凭证即可读，
+ * 因此前端可以据此做「只展示在线模型」的**展示层**决策 —— 无需改动后端。
+ */
+export interface RecommendedModelInfo {
+  model_id: string;
+  display_name: string;
+  description: string;
+  tier: string;
+  min_vram_gb: number;
+  prompt_price_per_1k: number;
+  completion_price_per_1k: number;
+  royalty_rate: number;
+  /** 当前在线且能证明可服务该模型的节点数（0 = 暂无在线节点） */
+  online_nodes: number;
+  /** online_nodes > 0 */
+  recommended: boolean;
+}
+
+export interface RecommendedModelsResponse {
+  models: RecommendedModelInfo[];
+}
+
+export const fetchRecommendedModels = async (): Promise<RecommendedModelsResponse> => {
+  const res = await cloudApi.get('/api/v1/network/recommended-models');
+  return res.data;
+};
+
 /** 业主视角的派单统计（按节点：派单量 / 成功率 / 让退 / 冷却 / 平均排队等待） */
 export interface OwnerDispatchNodeStat {
   node_id: string;
