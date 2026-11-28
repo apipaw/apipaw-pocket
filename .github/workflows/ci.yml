@@ -132,7 +132,11 @@ jobs:
   #    本地硬验证：npm run build:web && node e2e/mobile-layout.cjs（退出码 1 = 有碰撞）
   mobile-layout:
     name: Mobile layout anti-collision (advisory)
-    runs-on: ubuntu-latest
+    # ⚠️ 必须钉 ubuntu-24.04 —— ubuntu-latest 现在是 26.04，
+    #    而 playwright 1.59.1 尚未提供 ubuntu26.04-x64 的 chromium 构建
+    #    （`npx playwright install` 会直接报 "Playwright does not support
+    #     chromium on ubuntu26.04-x64"）。
+    runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
