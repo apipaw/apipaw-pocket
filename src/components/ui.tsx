@@ -47,6 +47,16 @@ export interface StatTileProps {
   tone?: 'emerald' | 'cyan' | 'violet' | 'amber' | 'rose';
   hint?: string;
   style?: StyleProp<ViewStyle>;
+  /**
+   * 窄屏紧凑态（移动端）。
+   *
+   * 为什么需要：390px 宽时三块 KPI 平分一行 ≈ 115px，主数值 30px + 单位
+   * 「tok/s」+ 提示「输入 219 / 输出 21」必然放不下 ⇒ RN 的 ``numberOfLines={1}``
+   * 会渲染成省略号（``9.4...`` / ``3... tok/s``）。
+   * 紧凑态缩小内边距与字号，配合 Playground 侧的 2+1 换行布局，
+   * 保证数值与提示**完整可见、零省略号**。
+   */
+  compact?: boolean;
 }
 
 const TONE_COLOR: Record<NonNullable<StatTileProps['tone']>, string> = {
@@ -64,24 +74,29 @@ export const StatTile: React.FC<StatTileProps> = ({
   tone = 'cyan',
   hint,
   style,
+  compact = false,
 }) => {
   const toneColor = TONE_COLOR[tone];
   return (
-    <View style={[styles.statTile, style]}>
+    <View style={[styles.statTile, compact && styles.statTileCompact, style]}>
       <View style={styles.statTileHead}>
         <View style={[styles.statTileDot, { backgroundColor: toneColor }]} />
-        <Text style={styles.statTileLabel} id="apx-stat-label" numberOfLines={1}>
+        <Text style={[styles.statTileLabel, compact && styles.statTileLabelCompact]} id="apx-stat-label" numberOfLines={1}>
           {label}
         </Text>
       </View>
       <View style={styles.statTileValueRow}>
-        <Text style={[styles.statTileValue, { color: toneColor }]} id="apx-stat-value" numberOfLines={1}>
+        <Text
+          style={[styles.statTileValue, compact && styles.statTileValueCompact, { color: toneColor }]}
+          id="apx-stat-value"
+          numberOfLines={1}
+        >
           {value}
         </Text>
-        {unit ? <Text style={styles.statTileUnit}>{unit}</Text> : null}
+        {unit ? <Text style={[styles.statTileUnit, compact && styles.statTileUnitCompact]}>{unit}</Text> : null}
       </View>
       {hint ? (
-        <Text style={styles.statTileHint} id="apx-stat-hint" numberOfLines={1}>
+        <Text style={[styles.statTileHint, compact && styles.statTileHintCompact]} id="apx-stat-hint" numberOfLines={1}>
           {hint}
         </Text>
       ) : null}
@@ -274,6 +289,16 @@ const styles = StyleSheet.create({
   statTileValue: { fontSize: fontSize.metric, fontWeight: '800', letterSpacing: -1 },
   statTileUnit: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '700' },
   statTileHint: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 4 },
+  // ---- 窄屏紧凑态（移动端 2+1 布局配套）----
+  statTileCompact: {
+    minHeight: 74,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  statTileLabelCompact: { fontSize: 11, letterSpacing: 0.2 },
+  statTileValueCompact: { fontSize: 22, letterSpacing: -0.4 },
+  statTileUnitCompact: { fontSize: 11 },
+  statTileHintCompact: { fontSize: 11, marginTop: 2 },
 
   toggleHit: { padding: 6 },
   toggleTrack: {

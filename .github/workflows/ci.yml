@@ -153,3 +153,30 @@ jobs:
         run: npm run build:web
       - name: Mobile layout audit (390x844 / 375x812)
         run: node e2e/mobile-layout.cjs
+
+  # 阶段二十八 P0 · 移动端 Playground 体验精修回归（advisory）
+  #
+  # 覆盖 4 处移动端缺陷：① 模型弹层不透明 ② 默认落在线模型 + 离线折叠分组
+  # ③ 窄屏配置折叠 / 对话区变大 / 账单小票折叠 ④ KPI 指标卡零省略号。
+  #
+  # ⚠️ 同样是 **advisory**：它依赖 Chromium 下载与一台空闲的 8081 端口，
+  #    抖动会造出假红；真正的硬闸仍是上面的 typecheck / unit-*.mjs / gzip 体积。
+  mobile-playground-ux:
+    name: Mobile Playground UX regression (advisory)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright + Chromium
+        run: |
+          npm i --no-save playwright@1.59.1
+          npx playwright install --with-deps chromium
+      - name: Web export
+        run: npm run build:web
+      - name: Mobile Playground UX audit (390x844 / 375x812)
+        run: node e2e/mobile-playground-ux.cjs
